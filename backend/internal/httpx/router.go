@@ -13,7 +13,11 @@ func NewRouter() *http.ServeMux {
 	return mux
 }
 
-func healthz(w http.ResponseWriter, _ *http.Request) {
+func healthz(w http.ResponseWriter, r *http.Request) {
+	if _, err := ParseQuery(r); err != nil {
+		WriteError(w, r, err)
+		return
+	}
 	// A listening HTTP socket is not platform readiness. Replace this with the
 	// actual platform/schema/process-lock check when platformdb is implemented.
 	err := &problem.Error{Code: problem.PlatformUnavailable, Message: "unavailable"}

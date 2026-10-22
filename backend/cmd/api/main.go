@@ -33,18 +33,33 @@ func run(logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Validate UI sources at startup when supplied. Page handlers will receive
+	// the renderer when their real templates and auth dependencies are available.
+	if _, err := httpx.LoadTemplates("web/templates"); err != nil {
+		logger.Error("unable to load HTML templates")
+		return err
+	}
+	mux := httpx.NewRouter()
+	assets, err := httpx.MountStatic(mux, "web/static")
+	if err != nil {
+		logger.Error("unable to open static directory")
+		return err
+	}
+	if assets != nil {
+		defer assets.Close()
+	}
 	listener, err := net.Listen("tcp", cfg.HTTPAddr)
 	if err != nil {
 		return err
 	}
 	logger.Info("HTTP server listening; platform unavailable")
-	return serveHTTP(ctx, newServer(cfg), listener)
+	return serveHTTP(ctx, newServer(cfg, httpx.Middleware(logger, mux)), listener)
 }
 
-func newServer(cfg config.Config) *http.Server {
+func newServer(cfg config.Config, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpx.NewRouter(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      75 * time.Second,

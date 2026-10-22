@@ -35,3 +35,13 @@ func TestRoutesRemainLimited(t *testing.T) {
 		t.Fatalf("POST health = %d, Allow=%q", w.Code, w.Header().Get("Allow"))
 	}
 }
+
+func TestHealthRejectsUnexpectedQuery(t *testing.T) {
+	for _, query := range []string{"extra=value", "extra=one&extra=two", "extra=%zz"} {
+		w := httptest.NewRecorder()
+		NewRouter().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz?"+query, nil))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("unexpected health query accepted: %d", w.Code)
+		}
+	}
+}

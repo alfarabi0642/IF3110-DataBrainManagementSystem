@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,8 +17,30 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/config"
 )
 
+func TestStartupRejectsInvalidTemplates(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("APP_ORIGIN", "http://localhost:8080")
+	t.Setenv("HTTP_ADDR", "127.0.0.1:8080")
+	templates := filepath.Join(dir, "web", "templates")
+	if err := os.MkdirAll(templates, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(templates, "page.html"), []byte(`{{SENSITIVE`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	if err := run(slog.New(slog.NewTextHandler(&logs, nil))); err == nil {
+		t.Fatal("invalid template did not reject startup")
+	}
+	if strings.Contains(logs.String(), "SENSITIVE") || strings.Contains(logs.String(), dir) {
+		t.Fatal("template error leaked source/path in logs")
+	}
+}
+
 func TestServerTimeouts(t *testing.T) {
-	server := newServer(config.Config{HTTPAddr: "127.0.0.1:8080"})
+	server := newServer(config.Config{HTTPAddr: "127.0.0.1:8080"}, http.NotFoundHandler())
 	if server.ReadHeaderTimeout != 5*time.Second || server.ReadTimeout != 10*time.Second ||
 		server.WriteTimeout != 75*time.Second || server.IdleTimeout != 60*time.Second {
 		t.Fatal("HTTP timeouts differ from the operational contract")
@@ -28,7 +55,7 @@ func TestServerGracefulShutdown(t *testing.T) {
 	defer listener.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	server := newServer(config.Config{})
+	server := newServer(config.Config{}, http.NotFoundHandler())
 	defer server.Close()
 
 	started, release, draining := make(chan struct{}), make(chan struct{}), make(chan struct{})
