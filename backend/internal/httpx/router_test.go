@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,7 +10,7 @@ import (
 
 func TestHealthUnavailable(t *testing.T) {
 	w := httptest.NewRecorder()
-	NewRouter().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	NewRouter(nil).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if w.Code != http.StatusServiceUnavailable || w.Body.String() != "unavailable\n" {
 		t.Fatalf("health = %d %q; want 503 unavailable", w.Code, w.Body.String())
 	}
@@ -19,7 +20,7 @@ func TestHealthUnavailable(t *testing.T) {
 }
 
 func TestRoutesRemainLimited(t *testing.T) {
-	mux := NewRouter()
+	mux := NewRouter(nil)
 	for _, path := range []string{"/", "/login", "/databases", "/admin/users", "/static/style.css", "/healthz/extra", "/missing"} {
 		t.Run(path, func(t *testing.T) {
 			w := httptest.NewRecorder()
@@ -39,9 +40,25 @@ func TestRoutesRemainLimited(t *testing.T) {
 func TestHealthRejectsUnexpectedQuery(t *testing.T) {
 	for _, query := range []string{"extra=value", "extra=one&extra=two", "extra=%zz"} {
 		w := httptest.NewRecorder()
-		NewRouter().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz?"+query, nil))
+		NewRouter(nil).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz?"+query, nil))
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("unexpected health query accepted: %d", w.Code)
 		}
+	}
+}
+
+func TestHealthUsesCurrentReadiness(t *testing.T) {
+	ready := true
+	mux := NewRouter(func(ctx context.Context) bool { return ctx.Err() == nil && ready })
+	for _, status := range []int{http.StatusOK, http.StatusServiceUnavailable} {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+		if w.Code != status || w.Header().Get("Content-Type") != "text/plain; charset=utf-8" || w.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("unexpected health response: %d %v", w.Code, w.Header())
+		}
+		if status == http.StatusOK && w.Body.String() != "ok\n" {
+			t.Fatal("ready response must be ok")
+		}
+		ready = false
 	}
 }

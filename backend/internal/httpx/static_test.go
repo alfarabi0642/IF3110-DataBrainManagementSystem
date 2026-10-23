@@ -21,7 +21,7 @@ func TestMountStaticConfinesAssets(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(base, "secret.txt"), []byte("SENSITIVE"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	mux := NewRouter()
+	mux := NewRouter(nil)
 	root, err := MountStatic(mux, assets)
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +39,7 @@ func TestMountStaticConfinesAssets(t *testing.T) {
 			t.Fatalf("asset root escaped through %q", path)
 		}
 	}
-	missing := NewRouter()
+	missing := NewRouter(nil)
 	if root, err := MountStatic(missing, filepath.Join(base, "missing")); err != nil || root != nil {
 		t.Fatalf("missing static directory must stay absent: %v", err)
 	}
