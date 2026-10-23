@@ -1,0 +1,43 @@
+{{/*
+Shared page frame. Page data provides: .Title string, .CSRF string, and .User, which is nil when
+signed out or has .DisplayName, .Username and .IsAdmin.
+*/}}
+{{define "header"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{if .Title}}{{.Title}} - {{end}}DataBrain</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="topbar">
+    <a class="brand" href="/">DataBrain</a>
+    {{with .User}}
+    <nav aria-label="Main">
+      <a href="/databases">Databases</a>
+      {{if .IsAdmin}}
+      <a href="/admin/users">Users</a>
+      <a href="/admin/groups">Groups</a>
+      <a href="/admin/databases">Connections</a>
+      {{end}}
+    </nav>
+    <div class="account">
+      <span>{{.DisplayName}} <span class="muted">{{.Username}}</span></span>
+      <form method="post" action="/logout">
+        <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+        <button type="submit" class="quiet">Log out</button>
+      </form>
+    </div>
+    {{end}}
+  </header>
+  <main id="main">
+  <h1>{{.Title}}</h1>
+  {{end}}
+
+  {{define "footer"}}
+  </main>
+</body>
+</html>
+{{end}}
