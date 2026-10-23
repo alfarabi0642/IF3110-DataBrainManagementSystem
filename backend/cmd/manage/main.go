@@ -9,7 +9,7 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/migrations"
 )
 
-const usage = "Usage: manage migrate up\nApplies embedded platform migrations using MIGRATOR_DATABASE_URL.\n"
+const usage = "Usage: manage migrate up\n       manage bootstrap-admin --username NAME --display-name NAME --password-file PATH\n"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -36,6 +36,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stdout, "Platform schema version=%d dirty=%t no_change=%t.\n", result.Version, result.Dirty, result.NoChange)
 		return 0
+	}
+	if len(args) > 0 && args[0] == "bootstrap-admin" {
+		return runBootstrapAdmin(args[1:], stdout, stderr)
 	}
 	fmt.Fprint(stderr, usage)
 	if len(args) != 0 {
