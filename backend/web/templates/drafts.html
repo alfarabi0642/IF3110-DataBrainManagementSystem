@@ -1,0 +1,36 @@
+{{/*
+J-04. Data: Layout, Drafts (ID, Title, Revision, UpdatedAt, UpdatedBy), Pager, Form (Title, SQL
+as safely redisplayed), Error (summary text, empty when none).
+*/}}
+{{define "drafts"}}{{template "header" .}}
+{{if .Drafts}}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Title</th><th>Revision</th><th>Last saved by</th><th>Saved at (UTC)</th></tr></thead>
+  <tbody>
+  {{range .Drafts}}
+  <tr>
+    <td><a href="/databases/{{$.Database.ID}}/drafts/{{.ID}}">{{.Title}}</a></td>
+    <td>{{.Revision}}</td><td>{{.UpdatedBy}}</td><td>{{.UpdatedAt}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{template "pager" .Pager}}
+{{else}}
+<p>No drafts yet. Write the first one below.</p>
+{{end}}
+
+<h2>New draft</h2>
+{{with .Error}}<p class="status failed" role="alert">{{.}}</p>{{end}}
+<form method="post" action="/databases/{{.Database.ID}}/drafts">
+  <input type="hidden" name="_csrf" value="{{.CSRF}}">
+  <label for="title">Title</label>
+  <input id="title" name="title" maxlength="120" required value="{{.Form.Title}}">
+  <label for="sql">SQL</label>
+  <textarea id="sql" name="sql" spellcheck="false" required>
+{{.Form.SQL}}</textarea>
+  <button type="submit">Save draft</button>
+</form>
+{{template "footer" .}}{{end}}

@@ -1,0 +1,16 @@
+{{/* Small pieces shared by several pages. */}}
+{{/* pager: data has Prev and Next, both link strings built by the server; empty hides the link. */}}
+{{define "pager"}}{{if .}}{{if or .Prev .Next}}
+<nav class="pager" aria-label="Pages">
+  {{with .Prev}}<a href="{{.}}" rel="prev">Previous</a>{{end}}
+  {{with .Next}}<a href="{{.}}" rel="next">Next</a>{{end}}
+</nav>
+{{end}}{{end}}{{end}}
+
+{{/* state: one of reserved, running, succeeded, failed, unknown. */}}
+{{define "state"}}<span class="badge {{.}}">{{.}}</span>{{end}}
+
+{{/* cell: a table cell value with Null bool and Text string. NULL, "null" and "" look different. */}}
+{{define "cell"}}{{if .Null}}<span class="null">NULL</span>{{else if eq .Text ""}}<span class="empty-string">(empty)</span>{{else}}{{.Text}}{{end}}{{end}}
+
+{{define "yesno"}}{{if .}}yes{{else}}no{{end}}{{end}}

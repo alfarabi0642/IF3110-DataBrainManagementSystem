@@ -1,0 +1,30 @@
+{{/*
+J-02. Data: Layout, Databases (ID, Name, Access view_only|view_edit, ActiveAttempt nil or
+ID, Version, State) and Pager. No host, user or password of a target is shown.
+*/}}
+{{define "databases"}}{{template "header" .}}
+{{if .Databases}}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Database</th><th>Your access</th><th>In progress</th><th>Open</th></tr></thead>
+  <tbody>
+  {{range .Databases}}{{$id := .ID}}
+  <tr>
+    <td>{{.Name}}</td>
+    <td>{{if eq .Access "view_edit"}}View and edit{{else}}View only{{end}}</td>
+    <td>{{with .ActiveAttempt}}<a href="/databases/{{$id}}/migrations/{{.ID}}">Version {{.Version}}</a> {{template "state" .State}}{{else}}None{{end}}</td>
+    <td>
+      <a href="/databases/{{.ID}}/explorer" aria-label="Explorer for {{.Name}}">Explorer</a>
+      {{if eq .Access "view_edit"}}<a href="/databases/{{.ID}}/drafts" aria-label="Drafts for {{.Name}}">Drafts</a>{{end}}
+      <a href="/databases/{{.ID}}/migrations" aria-label="History for {{.Name}}">History</a>
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{template "pager" .Pager}}
+{{else}}
+<p>You cannot open any database yet. Ask an admin to add your group to one.</p>
+{{end}}
+{{template "footer" .}}{{end}}
