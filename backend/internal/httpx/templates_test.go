@@ -5,47 +5,47 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
 )
 
-type testUser struct {
-	DisplayName, Username string
-	IsAdmin               bool
-}
-
-type testErrorPage struct {
-	Title, CSRF              string
-	User                     *testUser
-	Message, Code, RequestID string
-}
-
-// The shipped templates must parse and escape layout and page data.
+// The shipped templates must parse, escape layout data, and render errors.
 func TestWebTemplatesRenderErrorPage(t *testing.T) {
 	renderer, err := LoadTemplates("../../web/templates")
 	if err != nil || renderer == nil {
 		t.Fatalf("templates not loaded: %v", err)
 	}
-	render := func(page testErrorPage) string {
+	render := func(layout Layout, err error) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
-		if err := renderer.Render(w, httptest.NewRequest(http.MethodGet, "/", nil), 404, "error", page); err != nil {
-			t.Fatal(err)
-		}
-		return w.Body.String()
+		renderer.RenderError(w, httptest.NewRequest(http.MethodGet, "/", nil), layout, err)
+		return w
 	}
+	notFound := &problem.Error{Code: problem.DatabaseNotFound, Message: "<script>alert(1)</script>"}
 
-	hostile := `<script>alert(1)</script>`
-	body := render(testErrorPage{Title: "Not found", Message: hostile, Code: "DATABASE_NOT_FOUND", RequestID: "req-1"})
-	if strings.Contains(body, "<script>") || !strings.Contains(body, "&lt;script&gt;") || !strings.Contains(body, "req-1") {
-		t.Fatalf("error page not escaped: %s", body)
+	w := render(Layout{}, notFound)
+	body := w.Body.String()
+	if w.Code != 404 || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") ||
+		!strings.Contains(body, "DATABASE_NOT_FOUND") || strings.Contains(body, "<script>") {
+		t.Fatalf("signed-out error page wrong: %d %s", w.Code, body)
 	}
 	if strings.Contains(body, `action="/logout"`) || strings.Contains(body, "/databases") {
 		t.Fatal("signed-out page shows account navigation")
 	}
 
-	body = render(testErrorPage{Title: "Not found", CSRF: "tok", User: &testUser{DisplayName: hostile, Username: "ana"}})
+	hostile := `<script>alert(1)</script>`
+	body = render(Layout{CSRF: "tok", User: &LayoutUser{DisplayName: hostile, Username: "ana"}}, notFound).Body.String()
 	if strings.Contains(body, "<script>") || !strings.Contains(body, `name="_csrf" value="tok"`) || strings.Contains(body, "/admin/") {
 		t.Fatalf("viewer layout wrong: %s", body)
 	}
-	if body = render(testErrorPage{User: &testUser{IsAdmin: true}}); !strings.Contains(body, `href="/admin/users"`) {
+	if body = render(Layout{User: &LayoutUser{IsAdmin: true}}, notFound).Body.String(); !strings.Contains(body, `href="/admin/users"`) {
 		t.Fatal("admin navigation missing")
+	}
+}
+
+func TestRenderErrorFallsBackToPlainText(t *testing.T) {
+	w := httptest.NewRecorder()
+	(*Renderer)(nil).RenderError(w, httptest.NewRequest(http.MethodGet, "/", nil), Layout{}, &problem.Error{Code: problem.InternalError})
+	if w.Code != 500 || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/plain") {
+		t.Fatalf("no plain-text fallback: %d %v", w.Code, w.Header())
 	}
 }
