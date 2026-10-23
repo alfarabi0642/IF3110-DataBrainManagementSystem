@@ -1,19 +1,115 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/config"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
 )
 
+func TestStartupRejectsInvalidTemplates(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("APP_ORIGIN", "http://localhost:8080")
+	t.Setenv("HTTP_ADDR", "127.0.0.1:8080")
+	templates := filepath.Join(dir, "web", "templates")
+	if err := os.MkdirAll(templates, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(templates, "page.html"), []byte(`{{SENSITIVE`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	if err := run(slog.New(slog.NewTextHandler(&logs, nil))); err == nil {
+		t.Fatal("invalid template did not reject startup")
+	}
+	if strings.Contains(logs.String(), "SENSITIVE") || strings.Contains(logs.String(), dir) {
+		t.Fatal("template error leaked source/path in logs")
+	}
+}
+
+func TestProcessLockLossCancelsActiveRequests(t *testing.T) {
+	for _, duringDrain := range []bool{false, true} {
+		t.Run(map[bool]string{false: "serving", true: "draining"}[duringDrain], func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			lost := make(chan struct{})
+			started, canceled, draining := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			server := newServer(config.Config{}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				close(started)
+				<-r.Context().Done()
+				close(canceled)
+			}))
+			defer server.Close()
+			server.RegisterOnShutdown(func() { close(draining) })
+			stopped := make(chan error, 1)
+			go func() { stopped <- serveHTTP(ctx, server, listener, lost) }()
+			clientDone := make(chan struct{})
+			go func() {
+				defer close(clientDone)
+				client := &http.Client{Timeout: 5 * time.Second}
+				res, err := client.Get("http://" + listener.Addr().String())
+				if err == nil {
+					res.Body.Close()
+				}
+			}()
+			select {
+			case <-started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("request did not start")
+			}
+			if duringDrain {
+				cancel()
+				select {
+				case <-draining:
+				case <-time.After(5 * time.Second):
+					t.Fatal("server did not begin draining")
+				}
+			}
+			close(lost)
+			select {
+			case <-canceled:
+			case <-time.After(5 * time.Second):
+				t.Fatal("lock loss did not cancel the active request")
+			}
+			select {
+			case err := <-stopped:
+				if !errors.Is(err, platformdb.ErrLockLost) {
+					t.Fatal("lock loss did not fail the server")
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("lock loss did not stop the server")
+			}
+			conn, err := net.DialTimeout("tcp", listener.Addr().String(), time.Second)
+			if err == nil {
+				conn.Close()
+				t.Fatal("listener still accepts connections after lock loss")
+			}
+			<-clientDone
+		})
+	}
+}
+
 func TestServerTimeouts(t *testing.T) {
-	server := newServer(config.Config{HTTPAddr: "127.0.0.1:8080"})
+	server := newServer(config.Config{HTTPAddr: "127.0.0.1:8080"}, http.NotFoundHandler())
 	if server.ReadHeaderTimeout != 5*time.Second || server.ReadTimeout != 10*time.Second ||
 		server.WriteTimeout != 75*time.Second || server.IdleTimeout != 60*time.Second {
 		t.Fatal("HTTP timeouts differ from the operational contract")
@@ -28,7 +124,7 @@ func TestServerGracefulShutdown(t *testing.T) {
 	defer listener.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	server := newServer(config.Config{})
+	server := newServer(config.Config{}, http.NotFoundHandler())
 	defer server.Close()
 
 	started, release, draining := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -46,7 +142,7 @@ func TestServerGracefulShutdown(t *testing.T) {
 		}
 	})
 	stopped := make(chan error, 1)
-	go func() { stopped <- serveHTTP(ctx, server, listener) }()
+	go func() { stopped <- serveHTTP(ctx, server, listener, nil) }()
 	response := make(chan error, 1)
 	go func() {
 		client := &http.Client{Timeout: 5 * time.Second}

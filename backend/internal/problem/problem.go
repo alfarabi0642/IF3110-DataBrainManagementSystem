@@ -3,7 +3,22 @@ package problem
 
 type Code string
 
-const PlatformUnavailable Code = "PLATFORM_UNAVAILABLE"
+const (
+	PlatformUnavailable  Code = "PLATFORM_UNAVAILABLE"
+	InvalidRequest       Code = "INVALID_REQUEST"
+	BodyTooLarge         Code = "BODY_TOO_LARGE"
+	ResultTooLarge       Code = "RESULT_TOO_LARGE"
+	UnsupportedMediaType Code = "UNSUPPORTED_MEDIA_TYPE"
+	InternalError        Code = "INTERNAL_ERROR"
+	RequestTimeout       Code = "REQUEST_TIMEOUT"
+	ValidationFailed     Code = "VALIDATION_FAILED"
+	RevisionConflict     Code = "REVISION_CONFLICT"
+	CSRFInvalid          Code = "CSRF_INVALID"
+	OriginRejected       Code = "ORIGIN_REJECTED"
+	AdminRequired        Code = "ADMIN_REQUIRED"
+	DatabaseAccessDenied Code = "DATABASE_ACCESS_DENIED"
+	DatabaseNotFound     Code = "DATABASE_NOT_FOUND"
+)
 
 // Error contains only a public code and a safe message. Driver errors, SQL,
 // credentials, and session tokens must never be placed in these fields.
@@ -13,5 +28,8 @@ type Error struct {
 }
 
 func (e *Error) Error() string {
+	if e.Message == "" {
+		return string(e.Code)
+	}
 	return string(e.Code) + ": " + e.Message
 }
