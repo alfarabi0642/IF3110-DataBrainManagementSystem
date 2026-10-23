@@ -42,6 +42,37 @@ func TestWebTemplatesRenderErrorPage(t *testing.T) {
 	}
 }
 
+func TestWebTemplatesDatabaseNav(t *testing.T) {
+	renderer, err := LoadTemplates("../../web/templates")
+	if err != nil || renderer == nil {
+		t.Fatalf("templates not loaded: %v", err)
+	}
+	render := func(layout Layout) string {
+		w := httptest.NewRecorder()
+		renderer.RenderError(w, httptest.NewRequest(http.MethodGet, "/", nil), layout, &problem.Error{Code: problem.DatabaseNotFound})
+		return w.Body.String()
+	}
+	user := &LayoutUser{Username: "ana"}
+	id := "3f2b8e64-0c1a-4c57-9b0e-5d8f1a2b3c4d"
+
+	body := render(Layout{User: user, Active: "databases"})
+	if strings.Contains(body, `aria-label="Database"`) || !strings.Contains(body, `href="/databases" aria-current="page"`) {
+		t.Fatalf("main nav wrong without a database: %s", body)
+	}
+
+	body = render(Layout{User: user, Active: "history", Database: &LayoutDatabase{ID: id, Name: `<b>prod</b>`}})
+	if strings.Contains(body, "<b>prod") || strings.Contains(body, "/drafts") ||
+		!strings.Contains(body, `href="/databases/`+id+`/explorer"`) ||
+		!strings.Contains(body, `/migrations" aria-current="page"`) {
+		t.Fatalf("view-only database nav wrong: %s", body)
+	}
+
+	body = render(Layout{User: user, Active: "drafts", Database: &LayoutDatabase{ID: id, Name: "prod", CanEdit: true}})
+	if !strings.Contains(body, `/drafts" aria-current="page"`) {
+		t.Fatalf("editor nav missing Drafts: %s", body)
+	}
+}
+
 func TestRenderErrorFallsBackToPlainText(t *testing.T) {
 	w := httptest.NewRecorder()
 	(*Renderer)(nil).RenderError(w, httptest.NewRequest(http.MethodGet, "/", nil), Layout{}, &problem.Error{Code: problem.InternalError})

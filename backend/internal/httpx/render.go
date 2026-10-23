@@ -128,12 +128,22 @@ type LayoutUser struct {
 	IsAdmin     bool
 }
 
+// LayoutDatabase is the database a page belongs to. CanEdit shows the Drafts link.
+type LayoutDatabase struct {
+	ID      string
+	Name    string
+	CanEdit bool
+}
+
 // Layout holds the fields web/templates/layout.html needs. Page structs embed
 // it. User is nil on signed-out pages, which hides navigation and logout.
+// Database is nil outside a database's pages. Active names the current nav item.
 type Layout struct {
-	Title string
-	CSRF  string
-	User  *LayoutUser
+	Title    string
+	CSRF     string
+	Active   string
+	User     *LayoutUser
+	Database *LayoutDatabase
 }
 
 type errorPage struct {

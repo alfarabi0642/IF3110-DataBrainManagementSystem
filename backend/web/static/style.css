@@ -32,6 +32,19 @@ a { color: var(--accent); }
 .topbar nav { display: flex; flex-wrap: wrap; gap: 1rem; }
 .topbar nav a { color: var(--ink); text-decoration: none; }
 .topbar nav a:hover, .topbar nav a[aria-current="page"] { color: var(--accent); text-decoration: underline; }
+/* Database sub-navigation: explorer, drafts, history. */
+.dbnav { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem 1.5rem; padding: .5rem var(--space); border-bottom: 1px solid var(--line); }
+.dbnav a { color: var(--ink); text-decoration: none; padding: .25rem 0; border-bottom: 2px solid transparent; }
+.dbnav a:hover { color: var(--accent); }
+.dbnav a[aria-current="page"], .topbar nav a[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+/* Explorer tabs and breadcrumb. */
+.tabs { display: flex; flex-wrap: wrap; gap: .25rem 1.5rem; margin: 1rem 0; border-bottom: 1px solid var(--line); }
+.tabs a { color: var(--ink); text-decoration: none; padding: .25rem 0; border-bottom: 2px solid transparent; }
+.tabs a:hover { color: var(--accent); }
+.tabs a[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.crumbs { margin: 0 0 1rem; }
+ul.plain { padding-left: 1.25rem; }
+td a + a { margin-left: .75rem; }
 .account { display: flex; align-items: center; gap: .75rem; margin-left: auto; }
 .account form { margin: 0; }
 
