@@ -74,6 +74,7 @@ func TestErrorInfoRedactsRawMessages(t *testing.T) {
 	}{
 		{&problem.Error{Code: problem.InvalidRequest, Message: "SENSITIVE"}, 400},
 		{&problem.Error{Code: problem.CSRFInvalid}, 403},
+		{&problem.Error{Code: problem.SessionInvalid}, 401},
 		{&problem.Error{Code: problem.OriginRejected}, 403},
 		{&problem.Error{Code: problem.AdminRequired}, 403},
 		{&problem.Error{Code: problem.DatabaseAccessDenied}, 403},
@@ -91,6 +92,16 @@ func TestErrorInfoRedactsRawMessages(t *testing.T) {
 		if status != tt.status || strings.Contains(string(code)+message, "SENSITIVE") {
 			t.Fatalf("unsafe or incorrect error mapping: %d %s %s", status, code, message)
 		}
+	}
+}
+
+func TestWriteErrorRedirectsInvalidSession(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/admin/users", nil)
+	WriteError(w, r, fmt.Errorf("wrapped: %w", &problem.Error{Code: problem.SessionInvalid}))
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/login" ||
+		w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("session redirect = %d %v", w.Code, w.Header())
 	}
 }
 

@@ -103,6 +103,8 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 			return 422, p.Code, "Check the form fields."
 		case problem.RevisionConflict:
 			return 409, p.Code, "The resource changed. Open the latest version before saving."
+		case problem.SessionInvalid:
+			return 401, p.Code, "Authentication required."
 		case problem.CSRFInvalid, problem.OriginRejected:
 			return 403, p.Code, "Open a new form and try again."
 		case problem.AdminRequired, problem.DatabaseAccessDenied:
@@ -124,6 +126,11 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 // WriteError is a plain-text error response until a real error template is
 // supplied by UI owners. It never renders raw error text or a substitute page.
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
+	var p *problem.Error
+	if errors.As(err, &p) && p != nil && p.Code == problem.SessionInvalid {
+		_ = SeeOther(w, r, "/login")
+		return
+	}
 	status, code, message := ErrorInfo(err)
 	pageHeaders(w, r)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")

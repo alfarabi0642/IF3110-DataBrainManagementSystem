@@ -13,6 +13,7 @@ const (
 	RequestTimeout         Code = "REQUEST_TIMEOUT"
 	ValidationFailed       Code = "VALIDATION_FAILED"
 	RevisionConflict       Code = "REVISION_CONFLICT"
+	SessionInvalid         Code = "SESSION_INVALID"
 	CSRFInvalid            Code = "CSRF_INVALID"
 	OriginRejected         Code = "ORIGIN_REJECTED"
 	AdminRequired          Code = "ADMIN_REQUIRED"
