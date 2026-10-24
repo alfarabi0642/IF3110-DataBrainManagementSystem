@@ -36,7 +36,7 @@ func TestDraftHandlerInput(t *testing.T) {
 			t.Fatal("invalid field has no validation message")
 		}
 	}
-	if _, err := NewHandler(nil, nil, nil); err == nil {
+	if _, err := NewHandler(nil, nil, nil, nil); err == nil {
 		t.Fatal("missing dependencies accepted")
 	}
 }

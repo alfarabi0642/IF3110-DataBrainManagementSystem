@@ -1,5 +1,5 @@
 {{/*
-Data:Layout and Attempt: ID, Version, Title, Revision, Actor, State, SQL, SQLHash, CreatedAt,
+Data: Layout and Attempt: ID, Version, Title, TargetName, Revision, Actor, State, SQL, SQLHash, CreatedAt, StartedAt, CommitStartedAt,
 FinishedAt, FailureCode, FailureMessage, SQLState, StatementIndex (1-based, 0 = none),
 FirstUnknownAt, ResolvedAt, ResolutionSummary. Optional fields are empty when not set.
 */}}
@@ -22,9 +22,12 @@ FirstUnknownAt, ResolvedAt, ResolutionSummary. Optional fields are empty when no
 <h2>Details</h2>
 <dl class="meta">
   <dt>Version</dt><dd>{{.Version}}</dd>
+  {{with .TargetName}}<dt>Database snapshot</dt><dd>{{.}}</dd>{{end}}
   <dt>Draft</dt><dd>{{.Title}}, revision {{.Revision}}</dd>
   <dt>Run by</dt><dd>{{.Actor}}</dd>
   <dt>Created</dt><dd>{{.CreatedAt}} UTC</dd>
+  {{with .StartedAt}}<dt>Started</dt><dd>{{.}} UTC</dd>{{end}}
+  {{with .CommitStartedAt}}<dt>Commit started</dt><dd>{{.}} UTC</dd>{{end}}
   {{with .FinishedAt}}<dt>Finished</dt><dd>{{.}} UTC</dd>{{end}}
   {{with .FirstUnknownAt}}<dt>Marked unknown</dt><dd>{{.}} UTC</dd>{{end}}
   {{with .ResolvedAt}}<dt>Resolved by operator</dt><dd>{{.}} UTC</dd>{{end}}
