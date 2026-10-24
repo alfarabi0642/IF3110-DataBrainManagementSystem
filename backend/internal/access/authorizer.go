@@ -40,8 +40,21 @@ func (a *authorizer) RequireAdmin(ctx context.Context, p Principal) error {
 		return accessFailure(problem.PlatformUnavailable)
 	}
 	defer lease.Release()
+	return RequireAdminIn(bounded, lease, p)
+}
+
+// RequireAdminIn reuses the live admin check on the caller's connection or
+// transaction. Mutations must lock security_guard, actor user, then actor
+// session before this check, using READ COMMITTED to recheck after lock waits.
+func RequireAdminIn(ctx context.Context, db platformdb.DBTX, p Principal) error {
+	if !validPrincipal(p) {
+		return accessFailure(problem.SessionInvalid)
+	}
+	if db == nil {
+		return accessFailure(problem.InternalError)
+	}
 	var valid, admin bool
-	err = lease.QueryRow(bounded, `WITH checked_at AS (SELECT clock_timestamp() AS value), actor AS (
+	err := db.QueryRow(ctx, `WITH checked_at AS (SELECT clock_timestamp() AS value), actor AS (
 	    SELECT u.is_platform_admin FROM databrain.sessions s JOIN databrain.users u ON u.id=s.user_id
 	    CROSS JOIN checked_at
 	    WHERE s.id=$1 AND s.user_id=$2 AND s.security_version=$3 AND u.security_version=$3
