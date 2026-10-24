@@ -207,6 +207,73 @@ func scanSession(row pgx.Row) (sessionRow, error) {
 	return value, err
 }
 
+func loadSession(ctx context.Context, tx pgx.Tx, hash [32]byte) (sessionRow, error) {
+	// The lock query may wait across rotation/expiry. Read token, user and clock
+	// again in a fresh READ COMMITTED snapshot after acquiring the family lock.
+	var id uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT s.id FROM databrain.session_tokens st
+	    JOIN databrain.sessions s ON s.id=st.session_id WHERE st.token_hash=$1 FOR UPDATE OF s`, hash[:]).Scan(&id); err != nil {
+		return sessionRow{}, err
+	}
+	return scanSession(tx.QueryRow(ctx, `SELECT s.id,s.kind,s.user_id,s.security_version,
+	    s.current_token_hash,s.current_token_sealed,s.last_seen_at,s.last_rotated_at,s.absolute_expires_at,
+	    s.revoked_at,s.reauth_required,st.valid_until,coalesce(u.is_active,false),u.security_version,clock_timestamp()
+	    FROM databrain.sessions s JOIN databrain.session_tokens st ON st.session_id=s.id
+	    LEFT JOIN databrain.users u ON u.id=s.user_id WHERE s.id=$1 AND st.token_hash=$2`, id, hash[:]))
+}
+
+func (s *Service) sessionState(value sessionRow, allowReauth bool) (Session, error) {
+	if value.revoked.Valid || !value.now.Before(value.absolute) || !value.now.Before(value.validTo) ||
+		(value.kind != AnonymousSession && value.kind != AuthenticatedSession) {
+		return Session{}, sessionFailure(problem.SessionInvalid)
+	}
+	if value.kind == AuthenticatedSession && (!value.userID.Valid || !value.sessionVersion.Valid ||
+		!value.userVersion.Valid || !value.userActive || value.sessionVersion.Int64 != value.userVersion.Int64 ||
+		!value.now.Before(value.lastSeen.Add(authenticatedIdle))) {
+		return Session{}, sessionFailure(problem.SessionInvalid)
+	}
+	state := Session{ID: value.id, Kind: value.kind, ReauthRequired: value.reauth,
+		AbsoluteExpiresAt: value.absolute.UTC(), CSRF: s.csrf(value.id)}
+	if value.kind == AuthenticatedSession {
+		state.Principal = access.Principal{UserID: uuid.UUID(value.userID.Bytes), SessionID: value.id,
+			SecurityVersion: value.sessionVersion.Int64}
+		if value.reauth && !allowReauth {
+			return state, ErrReauthRequired
+		}
+	}
+	return state, nil
+}
+
+// rotateSession requires the family row lock and never commits its caller's transaction.
+func (s *Service) rotateSession(ctx context.Context, tx pgx.Tx, value sessionRow) (string, error) {
+	raw, encoded, err := newToken()
+	if err != nil {
+		return "", err
+	}
+	hash := tokenHash(raw)
+	sealed, err := s.secrets.SealSession(value.id, raw)
+	if err != nil {
+		return "", sessionFailure(problem.InternalError)
+	}
+	aliasUntil := value.now.Add(aliasGrace)
+	if aliasUntil.After(value.absolute) {
+		aliasUntil = value.absolute
+	}
+	if _, err := tx.Exec(ctx, `UPDATE databrain.session_tokens SET valid_until=LEAST(valid_until,$2)
+	    WHERE token_hash=$1`, value.currentHash, aliasUntil); err != nil {
+		return "", sessionFailure(problem.PlatformUnavailable)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO databrain.session_tokens(token_hash,session_id,valid_until)
+	    VALUES ($1,$2,$3)`, hash[:], value.id, value.absolute); err != nil {
+		return "", sessionFailure(problem.PlatformUnavailable)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE databrain.sessions SET current_token_hash=$2,
+	    current_token_sealed=$3,last_rotated_at=$4 WHERE id=$1`, value.id, hash[:], sealed, value.now); err != nil {
+		return "", sessionFailure(problem.PlatformUnavailable)
+	}
+	return encoded, nil
+}
+
 // Validate checks a cookie token, serializes rotation on the family row, and
 // returns a replacement token only for rotation or alias repair.
 func (s *Service) Validate(ctx context.Context, encoded string, allowReauth bool) (Session, string, error) {
@@ -227,34 +294,16 @@ func (s *Service) Validate(ctx context.Context, encoded string, allowReauth bool
 		return Session{}, "", sessionFailure(problem.PlatformUnavailable)
 	}
 	defer rollbackAuth(tx)
-	value, err := scanSession(tx.QueryRow(bounded, `SELECT s.id,s.kind,s.user_id,s.security_version,
-	    s.current_token_hash,s.current_token_sealed,s.last_seen_at,s.last_rotated_at,s.absolute_expires_at,
-	    s.revoked_at,s.reauth_required,st.valid_until,coalesce(u.is_active,false),u.security_version,clock_timestamp()
-	    FROM databrain.session_tokens st JOIN databrain.sessions s ON s.id=st.session_id
-	    LEFT JOIN databrain.users u ON u.id=s.user_id WHERE st.token_hash=$1 FOR UPDATE OF s`, hash[:]))
+	value, err := loadSession(bounded, tx, hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Session{}, "", sessionFailure(problem.SessionInvalid)
 	}
 	if err != nil {
 		return Session{}, "", sessionFailure(problem.PlatformUnavailable)
 	}
-	if value.revoked.Valid || !value.now.Before(value.absolute) || !value.now.Before(value.validTo) ||
-		(value.kind != AnonymousSession && value.kind != AuthenticatedSession) {
-		return Session{}, "", sessionFailure(problem.SessionInvalid)
-	}
-	state := Session{ID: value.id, Kind: value.kind, ReauthRequired: value.reauth,
-		AbsoluteExpiresAt: value.absolute.UTC(), CSRF: s.csrf(value.id)}
-	reauthRequired := false
-	if value.kind == AuthenticatedSession {
-		if !value.userID.Valid || !value.sessionVersion.Valid || !value.userVersion.Valid || !value.userActive ||
-			value.sessionVersion.Int64 != value.userVersion.Int64 || !value.now.Before(value.lastSeen.Add(authenticatedIdle)) {
-			return Session{}, "", sessionFailure(problem.SessionInvalid)
-		}
-		state.Principal = access.Principal{UserID: uuid.UUID(value.userID.Bytes), SessionID: value.id,
-			SecurityVersion: value.sessionVersion.Int64}
-		if value.reauth && !allowReauth {
-			reauthRequired = true
-		}
+	state, stateErr := s.sessionState(value, allowReauth)
+	if stateErr != nil && !errors.Is(stateErr, ErrReauthRequired) {
+		return Session{}, "", stateErr
 	}
 
 	replacement := ""
@@ -267,31 +316,10 @@ func (s *Service) Validate(ctx context.Context, encoded string, allowReauth bool
 		}
 		replacement = base64.RawURLEncoding.EncodeToString(canonical)
 	} else if !value.now.Before(value.lastRotated.Add(rotationInterval)) {
-		newRaw, encoded, err := newToken()
+		replacement, err = s.rotateSession(bounded, tx, value)
 		if err != nil {
 			return Session{}, "", err
 		}
-		newHash := tokenHash(newRaw)
-		sealed, err := s.secrets.SealSession(value.id, newRaw)
-		if err != nil {
-			return Session{}, "", sessionFailure(problem.InternalError)
-		}
-		aliasUntil := value.now.Add(aliasGrace)
-		if aliasUntil.After(value.absolute) {
-			aliasUntil = value.absolute
-		}
-		if _, err := tx.Exec(bounded, "UPDATE databrain.session_tokens SET valid_until=$2 WHERE token_hash=$1", hash[:], aliasUntil); err != nil {
-			return Session{}, "", sessionFailure(problem.PlatformUnavailable)
-		}
-		if _, err := tx.Exec(bounded, `INSERT INTO databrain.session_tokens(token_hash,session_id,valid_until)
-		    VALUES ($1,$2,$3)`, newHash[:], value.id, value.absolute); err != nil {
-			return Session{}, "", sessionFailure(problem.PlatformUnavailable)
-		}
-		if _, err := tx.Exec(bounded, `UPDATE databrain.sessions SET current_token_hash=$2,
-		    current_token_sealed=$3,last_rotated_at=$4 WHERE id=$1`, value.id, newHash[:], sealed, value.now); err != nil {
-			return Session{}, "", sessionFailure(problem.PlatformUnavailable)
-		}
-		replacement = encoded
 	}
 	if value.kind == AuthenticatedSession {
 		if _, err := tx.Exec(bounded, "UPDATE databrain.sessions SET last_seen_at=$2 WHERE id=$1", value.id, value.now); err != nil {
@@ -301,10 +329,7 @@ func (s *Service) Validate(ctx context.Context, encoded string, allowReauth bool
 	if err := tx.Commit(bounded); err != nil {
 		return Session{}, "", sessionFailure(problem.PlatformUnavailable)
 	}
-	if reauthRequired {
-		return state, replacement, ErrReauthRequired
-	}
-	return state, replacement, nil
+	return state, replacement, stateErr
 }
 
 func rollbackAuth(tx pgx.Tx) {
