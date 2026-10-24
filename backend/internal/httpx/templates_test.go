@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -70,6 +71,30 @@ func TestWebTemplatesDatabaseNav(t *testing.T) {
 	body = render(Layout{User: user, Active: "drafts", Database: &LayoutDatabase{ID: id, Name: "prod", CanEdit: true}})
 	if !strings.Contains(body, `/drafts" aria-current="page"`) {
 		t.Fatalf("editor nav missing Drafts: %s", body)
+	}
+}
+
+func TestErrorPagesRendersRouterFailures(t *testing.T) {
+	renderer, err := LoadTemplates("../../web/templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := NewRouter(func(context.Context) bool { return true })
+	handler := ErrorPages(renderer, mux)
+	for _, test := range []struct {
+		method, path string
+		status       int
+		code, allow  string
+	}{
+		{http.MethodGet, "/missing", 404, "ROUTE_NOT_FOUND", ""},
+		{http.MethodPost, "/healthz", 405, "METHOD_NOT_ALLOWED", "GET, HEAD"},
+	} {
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, httptest.NewRequest(test.method, test.path, nil))
+		if w.Code != test.status || w.Header().Get("Allow") != test.allow ||
+			!strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") || !strings.Contains(w.Body.String(), test.code) {
+			t.Fatalf("%s %s = %d %v %q", test.method, test.path, w.Code, w.Header(), w.Body.String())
+		}
 	}
 }
 

@@ -6,6 +6,8 @@ type Code string
 const (
 	PlatformUnavailable    Code = "PLATFORM_UNAVAILABLE"
 	InvalidRequest         Code = "INVALID_REQUEST"
+	RouteNotFound          Code = "ROUTE_NOT_FOUND"
+	MethodNotAllowed       Code = "METHOD_NOT_ALLOWED"
 	BodyTooLarge           Code = "BODY_TOO_LARGE"
 	ResultTooLarge         Code = "RESULT_TOO_LARGE"
 	UnsupportedMediaType   Code = "UNSUPPORTED_MEDIA_TYPE"

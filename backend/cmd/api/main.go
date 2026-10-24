@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/access"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/admin"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/auth"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/config"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/explorer"
@@ -88,7 +89,9 @@ func run(logger *slog.Logger) (err error) {
 	if err != nil {
 		return err
 	}
-	sessions, err := auth.NewService(db.Pool, secrets, auth.Policy{AppEnv: cfg.AppEnv, AppOrigin: cfg.AppOrigin}, nil)
+	sessions, err := auth.NewService(db.Pool, secrets, auth.Policy{
+		AppEnv: cfg.AppEnv, AppOrigin: cfg.AppOrigin, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
+	}, nil)
 	if err != nil {
 		return err
 	}
@@ -100,6 +103,25 @@ func run(logger *slog.Logger) (err error) {
 	if err != nil {
 		return err
 	}
+	authHandler, err := auth.NewHandler(sessions, renderer)
+	if err != nil {
+		logger.Error("authentication page templates unavailable")
+		return err
+	}
+	authHandler.Register(mux)
+	mux.Handle("GET /{$}", middleware.RequireSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = httpx.SeeOther(w, r, "/databases")
+	})))
+	adminService, err := admin.NewService(db.Pool, sessions)
+	if err != nil {
+		return err
+	}
+	adminHandler, err := admin.NewHandler(adminService, sessions, renderer)
+	if err != nil {
+		logger.Error("administration page templates unavailable")
+		return err
+	}
+	adminHandler.Register(mux)
 	handler, err := targets.NewHandler(provider, authorizer, renderer)
 	if err != nil {
 		logger.Error("database page templates unavailable")
@@ -136,8 +158,33 @@ func run(logger *slog.Logger) (err error) {
 	if err != nil {
 		return err
 	}
+	cleanupCtx, cancelCleanup := context.WithCancel(ctx)
+	cleanupDone := make(chan struct{})
+	go func() {
+		defer close(cleanupDone)
+		runSessionCleanup(cleanupCtx, time.Minute, sessions.Cleanup, logger)
+	}()
+	defer func() {
+		cancelCleanup()
+		<-cleanupDone
+	}()
 	logger.Info("HTTP server listening; platform ready")
-	return serveHTTP(ctx, newServer(cfg, httpx.Middleware(logger, mux)), listener, db.Lost())
+	return serveHTTP(ctx, newServer(cfg, httpx.Middleware(logger, httpx.ErrorPages(renderer, mux))), listener, db.Lost())
+}
+
+func runSessionCleanup(ctx context.Context, interval time.Duration, cleanup func(context.Context) error, logger *slog.Logger) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := cleanup(ctx); err != nil {
+				logger.Error("session cleanup failed", "code", "SESSION_CLEANUP_FAILED")
+			}
+		}
+	}
 }
 
 func newServer(cfg config.Config, handler http.Handler) *http.Server {

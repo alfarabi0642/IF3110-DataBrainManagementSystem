@@ -100,6 +100,10 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 		switch p.Code {
 		case problem.InvalidRequest:
 			return 400, p.Code, "Invalid form or query."
+		case problem.RouteNotFound:
+			return 404, p.Code, "Page not found."
+		case problem.MethodNotAllowed:
+			return 405, p.Code, "Method not allowed."
 		case problem.BodyTooLarge, problem.ResultTooLarge:
 			return 413, p.Code, "The request or result is too large."
 		case problem.UnsupportedMediaType:
