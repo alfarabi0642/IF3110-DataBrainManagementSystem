@@ -17,6 +17,7 @@ import (
 )
 
 type draftFixture struct {
+	db                      *platformdb.DB
 	store                   *DraftStore
 	target                  *pgx.Conn
 	actor, otherActor, a, b uuid.UUID
@@ -108,7 +109,7 @@ func newDraftFixture(t *testing.T) draftFixture {
 	if _, err := target.Exec(ctx, "CREATE TABLE public.draft_marker(value text); INSERT INTO public.draft_marker VALUES ('unchanged 猫')"); err != nil {
 		t.Fatal("cannot initialize isolated target marker")
 	}
-	f := draftFixture{store: NewDraftStore(db.Pool), target: target, actor: uuid.New(), otherActor: uuid.New(), a: uuid.New(), b: uuid.New()}
+	f := draftFixture{db: db, store: NewDraftStore(db.Pool), target: target, actor: uuid.New(), otherActor: uuid.New(), a: uuid.New(), b: uuid.New()}
 	if _, err := db.Pool.Exec(ctx, `INSERT INTO databrain.users(id,username,display_name,password_hash)
 	    VALUES ($1,'draft_editor_a','Editor A','synthetic-not-a-login-hash'),($2,'draft_editor_b','Editor B','synthetic-not-a-login-hash')`, f.actor, f.otherActor); err != nil {
 		t.Fatal("cannot create synthetic draft actors")

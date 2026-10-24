@@ -14,8 +14,10 @@ import (
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/access"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/auth"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/config"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/secret"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/targets"
 	"github.com/google/uuid"
 )
 
@@ -62,7 +64,15 @@ func newDraftHTTPFixture(t *testing.T, origin string) draftHTTPFixture {
 	if err != nil {
 		t.Fatal("real draft templates unavailable")
 	}
-	handler, err := NewHandler(f.store, guard, renderer)
+	provider, err := targets.NewProvider(f.store.pool, secrets, config.TargetSettings{AppEnv: "test", AllowedHosts: []string{"127.0.0.1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner, err := NewRunner(NewAttemptStore(f.store.pool), provider, guard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(f.store, runner, guard, renderer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,8 +183,9 @@ func TestDraftHandlersPostgres(t *testing.T) {
 	t.Run("editor read list pagination and escaped detail", func(t *testing.T) {
 		w := f.request(t, "GET", detail, f.editor, nil, 200)
 		has(t, w, html.EscapeString(input.Title), html.EscapeString(input.SQL), `name="expected_revision" value="1"`, "draft_editor_a", "Database &lt;b&gt;猫&lt;/b&gt;")
-		if strings.Contains(w.Body.String(), "<script>") || strings.Contains(w.Body.String(), "/review") || strings.Contains(w.Body.String(), "/execute") {
-			t.Fatal("draft HTML exposes markup or unavailable execution flow")
+		has(t, w, detail+"/review")
+		if strings.Contains(w.Body.String(), "<script>") || strings.Contains(w.Body.String(), "/execute") {
+			t.Fatal("draft HTML exposes markup or executes without review")
 		}
 		if _, err := f.store.Create(ctx, f.a, f.actor, DraftInput{"second", "large private SQL body"}); err != nil {
 			t.Fatal(err)
@@ -311,7 +322,5 @@ func TestDraftHandlersPostgres(t *testing.T) {
 		if f.store.pool.Stat().AcquiredConns() != 0 {
 			t.Fatal("draft HTTP leaked platform connections")
 		}
-		f.request(t, "GET", detail+"/review", f.otherEditor, nil, 404)
-		f.request(t, "POST", detail+"/execute", f.otherEditor, nil, 404)
 	})
 }

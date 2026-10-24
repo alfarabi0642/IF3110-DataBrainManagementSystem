@@ -9,7 +9,7 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/migrations"
 )
 
-const usage = "Usage: manage migrate up\n       manage bootstrap-admin --username NAME --display-name NAME --password-file PATH\n"
+const usage = "Usage: manage migrate up\n       manage bootstrap-admin --username NAME --display-name NAME --password-file PATH\n       manage resolve-attempt --attempt UUID --outcome succeeded|failed --operator NAME --evidence-file PATH\n"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -39,6 +39,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if len(args) > 0 && args[0] == "bootstrap-admin" {
 		return runBootstrapAdmin(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "resolve-attempt" {
+		return runResolveAttempt(args[1:], stdout, stderr)
 	}
 	fmt.Fprint(stderr, usage)
 	if len(args) != 0 {

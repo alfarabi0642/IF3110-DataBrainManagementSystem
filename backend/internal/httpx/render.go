@@ -108,8 +108,18 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 			return 422, p.Code, "Check the form fields."
 		case problem.RevisionConflict:
 			return 409, p.Code, "The resource changed. Open the latest version before saving."
+		case problem.IdempotencyConflict:
+			return 409, p.Code, "This request key belongs to a different draft or revision."
+		case problem.DraftAlreadyExecuted:
+			return 409, p.Code, "This draft revision already succeeded. Save a new revision before another execution."
+		case problem.ExecutionCapacity:
+			return 409, p.Code, "Migration execution capacity is full. Check the receipt before trying again."
+		case problem.SQLInvalid:
+			return 422, p.Code, "The saved SQL is empty or has invalid syntax."
+		case problem.SQLUnsupported:
+			return 422, p.Code, "The saved SQL contains an unsupported migration operation."
 		case problem.TargetBusy:
-			return 409, p.Code, "Resolve the active migration before editing this connection."
+			return 409, p.Code, "This database has an unresolved migration. Check its history before making changes."
 		case problem.TargetConflict:
 			return 409, p.Code, "A connection for this database already exists."
 		case problem.TargetConnectionFailed:
@@ -130,7 +140,7 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 			return 403, p.Code, "Open a new form and try again."
 		case problem.AdminRequired, problem.DatabaseAccessDenied:
 			return 403, p.Code, "Access denied."
-		case problem.DatabaseNotFound, problem.DraftNotFound:
+		case problem.DatabaseNotFound, problem.DraftNotFound, problem.AttemptNotFound:
 			return 404, p.Code, "Resource not available."
 		case problem.PlatformUnavailable:
 			return 503, p.Code, "Platform unavailable."
