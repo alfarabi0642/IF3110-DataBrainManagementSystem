@@ -1,0 +1,38 @@
+{{/*
+J-05. Data: Layout and Attempt: ID, Version, Title, Revision, Actor, State, SQL, SQLHash, CreatedAt,
+FinishedAt, FailureCode, FailureMessage, SQLState, StatementIndex (1-based, 0 = none),
+FirstUnknownAt, ResolvedAt, ResolutionSummary. Optional fields are empty when not set.
+*/}}
+{{define "attempt"}}{{template "header" .}}
+{{with .Attempt}}
+<p class="status {{.State}}" role="status">
+  {{template "state" .State}}
+  {{if eq .State "succeeded"}}The migration was committed to the database.
+  {{else if eq .State "failed"}}The migration was not applied. Nothing was committed.
+  {{else if eq .State "unknown"}}The result is not confirmed. New executions on this database stay blocked until an operator checks the outcome.
+  {{else}}The migration is still in progress. <a href="/databases/{{$.Database.ID}}/migrations/{{.ID}}">Refresh status</a>{{end}}
+</p>
+{{if .FailureCode}}
+<dl class="meta">
+  <dt>Reason</dt><dd><code>{{.FailureCode}}</code> {{.FailureMessage}}</dd>
+  {{with .SQLState}}<dt>SQLSTATE</dt><dd><code>{{.}}</code></dd>{{end}}
+  {{with .StatementIndex}}<dt>Statement</dt><dd>{{.}}</dd>{{end}}
+</dl>
+{{end}}
+<h2>Details</h2>
+<dl class="meta">
+  <dt>Version</dt><dd>{{.Version}}</dd>
+  <dt>Draft</dt><dd>{{.Title}}, revision {{.Revision}}</dd>
+  <dt>Run by</dt><dd>{{.Actor}}</dd>
+  <dt>Created</dt><dd>{{.CreatedAt}} UTC</dd>
+  {{with .FinishedAt}}<dt>Finished</dt><dd>{{.}} UTC</dd>{{end}}
+  {{with .FirstUnknownAt}}<dt>Marked unknown</dt><dd>{{.}} UTC</dd>{{end}}
+  {{with .ResolvedAt}}<dt>Resolved by operator</dt><dd>{{.}} UTC</dd>{{end}}
+  {{with .ResolutionSummary}}<dt>Operator summary</dt><dd>{{.}}</dd>{{end}}
+  <dt>SQL SHA-256</dt><dd><code>{{.SQLHash}}</code></dd>
+</dl>
+<h2>SQL that ran</h2>
+<pre>{{.SQL}}</pre>
+{{end}}
+<p><a href="/databases/{{.Database.ID}}/migrations">Back to history</a></p>
+{{template "footer" .}}{{end}}

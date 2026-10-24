@@ -1,0 +1,31 @@
+{{/*
+J-05. Data: Layout, Attempts (ID, Version, Title, Revision, Actor, CreatedAt, State), Pager,
+SearchKey (the request_key searched for, empty when not searching).
+*/}}
+{{define "history"}}{{template "header" .}}
+<form method="get" action="/databases/{{.Database.ID}}/migrations">
+  <label for="request_key">Find an attempt by request key</label>
+  <input id="request_key" name="request_key" value="{{.SearchKey}}" spellcheck="false">
+  <button type="submit">Find attempt</button>
+</form>
+{{if .Attempts}}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Version</th><th>Draft</th><th>Revision</th><th>Run by</th><th>Created (UTC)</th><th>Result</th></tr></thead>
+  <tbody>
+  {{range .Attempts}}
+  <tr>
+    <td><a href="/databases/{{$.Database.ID}}/migrations/{{.ID}}">{{.Version}}</a></td>
+    <td>{{.Title}}</td><td>{{.Revision}}</td><td>{{.Actor}}</td><td>{{.CreatedAt}}</td><td>{{template "state" .State}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{template "pager" .Pager}}
+{{else if .SearchKey}}
+<p>None of your attempts on this database has that request key.</p>
+{{else}}
+<p>Nothing has been run on this database yet.</p>
+{{end}}
+{{template "footer" .}}{{end}}

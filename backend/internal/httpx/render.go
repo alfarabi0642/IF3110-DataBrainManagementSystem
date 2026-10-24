@@ -123,8 +123,49 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 	return 500, problem.InternalError, "Internal server error."
 }
 
-// WriteError is a plain-text error response until a real error template is
-// supplied by UI owners. It never renders raw error text or a substitute page.
+// LayoutUser is the signed-in identity shown by the shared page header.
+type LayoutUser struct {
+	DisplayName string
+	Username    string
+	IsAdmin     bool
+}
+
+// LayoutDatabase is the database a page belongs to. CanEdit shows the Drafts link.
+type LayoutDatabase struct {
+	ID      string
+	Name    string
+	CanEdit bool
+}
+
+// Layout holds the fields web/templates/layout.html needs. Page structs embed
+// it. User is nil on signed-out pages, which hides navigation and logout.
+// Database is nil outside a database's pages. Active names the current nav item.
+type Layout struct {
+	Title    string
+	CSRF     string
+	Active   string
+	User     *LayoutUser
+	Database *LayoutDatabase
+}
+
+type errorPage struct {
+	Layout
+	Message, Code, RequestID string
+}
+
+// RenderError renders the "error" page with the fixed public message from
+// ErrorInfo. If rendering fails it falls back to the plain-text WriteError.
+func (renderer *Renderer) RenderError(w http.ResponseWriter, r *http.Request, layout Layout, err error) {
+	status, code, message := ErrorInfo(err)
+	layout.Title = "Error"
+	page := errorPage{Layout: layout, Message: message, Code: string(code), RequestID: RequestID(r.Context())}
+	if renderer.Render(w, r, status, "error", page) != nil {
+		WriteError(w, r, err)
+	}
+}
+
+// WriteError is a plain-text error response for code that runs before a
+// renderer or session exists. It never renders raw error text.
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	var p *problem.Error
 	if errors.As(err, &p) && p != nil && p.Code == problem.SessionInvalid {

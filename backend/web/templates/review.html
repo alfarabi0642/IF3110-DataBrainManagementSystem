@@ -1,0 +1,18 @@
+{{/* J-04. Data: Layout, Draft (ID, Title, SQL, Revision), RequestKey (UUID chosen by the server). */}}
+{{define "review"}}{{template "header" .}}
+<dl class="meta">
+  <dt>Database</dt><dd>{{.Database.Name}}</dd>
+  <dt>Draft</dt><dd>{{.Draft.Title}}</dd>
+  <dt>Revision</dt><dd>{{.Draft.Revision}}</dd>
+</dl>
+<h2>SQL to run</h2>
+<pre>{{.Draft.SQL}}</pre>
+<p>All statements run in one transaction. If any statement fails, none are applied.</p>
+<form method="post" action="/databases/{{.Database.ID}}/drafts/{{.Draft.ID}}/execute">
+  <input type="hidden" name="_csrf" value="{{.CSRF}}">
+  <input type="hidden" name="expected_revision" value="{{.Draft.Revision}}">
+  <input type="hidden" name="request_key" value="{{.RequestKey}}">
+  <button type="submit">Execute saved revision</button>
+</form>
+<p><a href="/databases/{{.Database.ID}}/drafts/{{.Draft.ID}}">Back to the editor</a></p>
+{{template "footer" .}}{{end}}
