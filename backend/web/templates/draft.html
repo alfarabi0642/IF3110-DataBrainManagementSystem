@@ -22,5 +22,5 @@ The newline after <textarea> is dropped by browsers, so SQL that starts with a n
 </form>
 <p>Saving does not change the database. Review always uses the last saved revision.</p>
 <p>{{if .CanReview}}<a class="button" href="/databases/{{.Database.ID}}/drafts/{{.Draft.ID}}/review">Review saved revision</a>{{end}}</p>
-<p></p><a href="/databases/{{.Database.ID}}/drafts">All drafts</a></p>
+<p><a href="/databases/{{.Database.ID}}/drafts">All drafts</a></p>
 {{template "footer" .}}{{end}}
