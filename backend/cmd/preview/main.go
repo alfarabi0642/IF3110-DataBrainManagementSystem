@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
 )
@@ -50,6 +51,32 @@ func attempt(state string, extra map[string]any) map[string]any {
 		"State": state, "SQL": sampleSQL, "SQLHash": hash, "CreatedAt": "2026-10-23 07:41:02",
 	}
 	return with(a, extra)
+}
+
+// admin switches the sample page to an admin user so the admin navigation shows.
+func admin(data, extra map[string]any) map[string]any {
+	data["User"] = map[string]any{"DisplayName": "Root Admin", "Username": "root", "IsAdmin": true}
+	return with(data, extra)
+}
+
+// connection builds the admin_database sample. A nil probe means none was run.
+func connection(probe map[string]any, conflict bool) map[string]any {
+	data := map[string]any{
+		"Target": map[string]any{
+			"ID": dbID, "Name": "orders-prod", "Host": "db.internal", "Port": 5432, "DatabaseName": "orders", "Username": "databrain_ro",
+			"SSLMode": "verify-full", "IsActive": true, "PasswordStored": true, "ConfigRevision": 7,
+			"UpdatedAt": time.Date(2026, 10, 24, 1, 2, 3, 0, time.UTC),
+		},
+		"Form":  map[string]any{"Name": "orders-prod", "Username": "databrain_ro", "SSLMode": "verify-full", "IsActive": true, "ExpectedRevision": "7"},
+		"Error": "", "Code": "", "Conflict": conflict,
+	}
+	if probe != nil {
+		data["Probe"] = probe
+	}
+	if conflict {
+		data["Form"] = map[string]any{"Name": "my new name", "Username": "databrain_ro", "SSLMode": "disable", "IsActive": false, "ExpectedRevision": "3"}
+	}
+	return data
 }
 
 func main() {
@@ -141,6 +168,24 @@ func main() {
 		{"/preview/attempt-unknown", "attempt", with(layout("Version 42", "history", true, true), map[string]any{"Attempt": attempt("unknown", map[string]any{
 			"FailureCode": "COMMIT_UNCERTAIN", "FailureMessage": "The commit result was not confirmed.", "FirstUnknownAt": "2026-10-23 07:41:30"})})},
 		{"/preview/attempt-running", "attempt", with(layout("Version 42", "history", true, true), map[string]any{"Attempt": attempt("running", nil)})},
+		{"/preview/admin-databases", "admin_databases", admin(layout("Connections", "connections", false, false), map[string]any{
+			"Databases": []map[string]any{
+				{"ID": dbID, "Name": "orders-prod", "Host": "db.internal", "Port": 5432, "DatabaseName": "orders", "Username": "databrain_ro", "SSLMode": "verify-full", "IsActive": true},
+				{"ID": "11111111-2222-4333-8444-555555555555", "Name": "analytics", "Host": "dw.internal", "Port": 5432, "DatabaseName": "dw", "Username": "ro", "SSLMode": "disable", "IsActive": false},
+			},
+			"Pager": pager, "Form": map[string]any{"Name": "", "Host": "", "Port": "5432", "DatabaseName": "", "Username": "", "SSLMode": "verify-full"},
+			"Error": "", "Code": "",
+		})},
+		{"/preview/admin-databases-error", "admin_databases", admin(layout("Connections", "connections", false, false), map[string]any{
+			"Databases": nil, "Pager": nil, "Error": "Check the form fields.", "Code": "VALIDATION_FAILED",
+			"Form": map[string]any{"Name": "orders-prod", "Host": "db.internal", "Port": "5432", "DatabaseName": "orders", "Username": "ro", "SSLMode": "disable"},
+		})},
+		{"/preview/admin-database", "admin_database", admin(layout("Connection", "connections", false, false), connection(nil, false))},
+		{"/preview/admin-database-probe-ok", "admin_database", admin(layout("Connection", "connections", false, false),
+			connection(map[string]any{"OK": true, "Reason": "", "ServerVersion": 170011, "Latency": 12 * time.Millisecond}, false))},
+		{"/preview/admin-database-probe-failed", "admin_database", admin(layout("Connection", "connections", false, false),
+			connection(map[string]any{"OK": false, "Reason": "authentication_failed", "ServerVersion": 0, "Latency": time.Duration(0)}, false))},
+		{"/preview/admin-database-conflict", "admin_database", admin(layout("Connection", "connections", false, false), connection(nil, true))},
 	}
 
 	mux := http.NewServeMux()

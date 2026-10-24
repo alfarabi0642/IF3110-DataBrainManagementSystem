@@ -1,0 +1,72 @@
+{{/*
+Admin connection detail. Data: Layout, Target (targets.Target: ID, Name, Host, Port,
+DatabaseName, Username, SSLMode, IsActive, PasswordStored, ConfigRevision, UpdatedAt time.Time),
+Form (ConnectionForm: strings, IsActive bool), Probe (nil or OK, Reason, ServerVersion, Latency),
+Error and Code (empty when none), Conflict (true after a revision conflict).
+On a conflict the hidden revision is the current one, so saving again is a deliberate overwrite
+made after the current values above were shown.
+*/}}
+{{define "admin_database"}}{{template "header" .}}
+{{if .Conflict}}
+<p class="status failed" role="alert">Someone changed this connection. Your changes were not saved. Compare your input below with the current values, then save again to overwrite.</p>
+{{else}}{{with .Error}}<p class="status failed" role="alert">{{.}} <code>{{$.Code}}</code></p>{{end}}{{end}}
+
+{{with .Probe}}
+{{if .OK}}
+<p class="status succeeded" role="status"><strong>Connection works.</strong> PostgreSQL server version number {{.ServerVersion}}, answered in {{.Latency}}.</p>
+{{else}}
+<p class="status failed" role="status"><strong>Connection failed:</strong>
+  {{if eq .Reason "authentication_failed"}}the server rejected the username or password.
+  {{else if eq .Reason "connection_refused"}}nothing accepted the connection at that host and port.
+  {{else if eq .Reason "timeout"}}the server did not answer in time.
+  {{else if eq .Reason "tls_failed"}}the TLS handshake or certificate check failed.
+  {{else if eq .Reason "unsupported_version"}}the server version is not supported.
+  {{else if eq .Reason "unsafe_role"}}the database user has more privileges than allowed.
+  {{else if eq .Reason "platform_target_forbidden"}}this is the platform database, which cannot be a target.
+  {{else}}the server could not be reached.{{end}}
+  <code>{{.Reason}}</code></p>
+{{end}}
+{{end}}
+
+<h2>Current values</h2>
+<dl class="meta">
+  <dt>Name</dt><dd>{{.Target.Name}}</dd>
+  <dt>Host</dt><dd>{{.Target.Host}}</dd>
+  <dt>Port</dt><dd>{{.Target.Port}}</dd>
+  <dt>Database name</dt><dd>{{.Target.DatabaseName}}</dd>
+  <dt>Username</dt><dd>{{.Target.Username}}</dd>
+  <dt>SSL mode</dt><dd>{{.Target.SSLMode}}</dd>
+  <dt>Status</dt><dd>{{if .Target.IsActive}}Active{{else}}Inactive{{end}}</dd>
+  <dt>Password</dt><dd>{{if .Target.PasswordStored}}Stored{{else}}Not stored{{end}}</dd>
+  <dt>Revision</dt><dd>{{.Target.ConfigRevision}}</dd>
+  <dt>Updated</dt><dd>{{.Target.UpdatedAt.UTC.Format "2006-01-02 15:04:05"}} UTC</dd>
+</dl>
+
+<form method="post" action="/admin/databases/{{.Target.ID}}/test">
+  <input type="hidden" name="_csrf" value="{{.CSRF}}">
+  <button type="submit" class="quiet">Test connection</button>
+</form>
+
+<h2>Edit connection</h2>
+<p class="muted">Host, port and database name cannot be changed. Add a new connection for another server.</p>
+<form method="post" action="/admin/databases/{{.Target.ID}}">
+  <input type="hidden" name="_csrf" value="{{.CSRF}}">
+  <input type="hidden" name="expected_revision" value="{{if .Conflict}}{{.Target.ConfigRevision}}{{else}}{{.Form.ExpectedRevision}}{{end}}">
+  <label for="name">Name</label>
+  <input id="name" name="name" maxlength="80" required value="{{.Form.Name}}">
+  <label for="username">Username</label>
+  <input id="username" name="username" maxlength="63" required autocomplete="off" value="{{.Form.Username}}">
+  <label for="password">New password</label>
+  <input id="password" name="password" type="password" autocomplete="new-password" value="">
+  <p class="muted">Leave empty to keep the stored password.</p>
+  <label for="ssl_mode">SSL mode</label>
+  {{template "sslmode" .Form}}
+  <label for="is_active">Status</label>
+  <select id="is_active" name="is_active">
+    <option value="true"{{if .Form.IsActive}} selected{{end}}>Active</option>
+    <option value="false"{{if not .Form.IsActive}} selected{{end}}>Inactive</option>
+  </select>
+  <button type="submit">{{if .Conflict}}Save over the current version{{else}}Save changes{{end}}</button>
+</form>
+<p><a href="/admin/databases">Back to connections</a></p>
+{{template "footer" .}}{{end}}
