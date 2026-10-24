@@ -40,6 +40,8 @@ func TestServiceRejectsBeforeDatabase(t *testing.T) {
 		func(s *Service) error { _, _, err := s.ListUsers(ctx, actor, 0, 0); return err },
 		func(s *Service) error { _, _, err := s.ListGroups(ctx, actor, 0, 0); return err },
 		func(s *Service) error { _, _, err := s.User(ctx, actor, uuid.Nil); return err },
+		func(s *Service) error { _, _, _, _, _, err := s.GroupDetails(ctx, actor, uuid.Nil); return err },
+		func(s *Service) error { _, err := s.EditUser(ctx, actor, uuid.Nil, EditUserInput{}); return err },
 		func(s *Service) error {
 			_, err := s.ResetPassword(ctx, actor, uuid.New(), ResetPasswordInput{})
 			return err
@@ -104,5 +106,31 @@ func TestCreateErrorsDoNotExposeDriverDetails(t *testing.T) {
 		} else {
 			requireAdminCode(t, err, problem.PlatformUnavailable)
 		}
+	}
+}
+
+func TestClassifyUserEditUsesStatusSafePrecedence(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		active, admin bool
+		input         EditUserInput
+		want          userSecurityEffect
+	}{
+		{"active unchanged", true, false, EditUserInput{IsActive: true}, preserveUserSessions},
+		{"deactivate user", true, false, EditUserInput{}, revokeUserSessions},
+		{"promote active user", true, false, EditUserInput{IsActive: true, IsPlatformAdmin: true}, reauthenticateUserSessions},
+		{"demote active admin", true, true, EditUserInput{IsActive: true}, revokeUserSessions},
+		{"inactive unchanged", false, false, EditUserInput{}, preserveUserSessions},
+		{"reactivate user", false, false, EditUserInput{IsActive: true}, reauthenticateUserSessions},
+		{"change inactive role", false, false, EditUserInput{IsPlatformAdmin: true}, preserveUserSessions},
+		{"deactivate and promote", true, false, EditUserInput{IsPlatformAdmin: true}, revokeUserSessions},
+		{"deactivate and demote", true, true, EditUserInput{}, revokeUserSessions},
+		{"reactivate and demote", false, true, EditUserInput{IsActive: true}, reauthenticateUserSessions},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := classifyUserEdit(test.active, test.admin, test.input); got != test.want {
+				t.Fatalf("effect=%d want=%d", got, test.want)
+			}
+		})
 	}
 }

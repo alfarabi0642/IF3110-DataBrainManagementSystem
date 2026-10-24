@@ -214,6 +214,119 @@ func TestAdminCreateAndListDatabase(t *testing.T) {
 	requireAdminCode(t, err, problem.AdminRequired)
 }
 
+func TestAdminEditUserUnambiguousTransitions(t *testing.T) {
+	s, actor := adminFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	userID, err := s.CreateUser(ctx, actor, CreateUserInput{
+		Username: "edit_user", DisplayName: "Before", Password: "Fixture-edit-password",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _, err := s.sessions.(*auth.Service).CreateAnonymous(ctx)
+	if err != nil {
+		t.Fatal("cannot seed edited user family")
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE databrain.sessions SET kind='authenticated',user_id=$2,security_version=1
+	    WHERE id=$1`, state.ID, userID); err != nil {
+		t.Fatal("cannot authenticate edited user fixture")
+	}
+
+	if actorLogin, err := s.EditUser(ctx, actor, userID, EditUserInput{
+		ExpectedRevision: 1, DisplayName: "  Renamed  ", IsActive: true,
+	}); err != nil || actorLogin {
+		t.Fatalf("name edit = actor_login=%v error=%v", actorLogin, err)
+	}
+	var name string
+	var active, admin, revoked, reauth bool
+	var revision, version, tokens int64
+	if err := s.pool.QueryRow(ctx, `SELECT u.display_name,u.is_active,u.is_platform_admin,u.revision,u.security_version,
+	    s.revoked_at IS NOT NULL,s.reauth_required,(SELECT count(*) FROM databrain.session_tokens st WHERE st.session_id=s.id)
+	    FROM databrain.users u JOIN databrain.sessions s ON s.user_id=u.id WHERE u.id=$1 AND s.id=$2`, userID, state.ID).
+		Scan(&name, &active, &admin, &revision, &version, &revoked, &reauth, &tokens); err != nil ||
+		name != "Renamed" || !active || admin || revision != 2 || version != 1 || revoked || reauth || tokens != 1 {
+		t.Fatal("name-only edit changed security state")
+	}
+
+	if actorLogin, err := s.EditUser(ctx, actor, userID, EditUserInput{
+		ExpectedRevision: 2, DisplayName: "Renamed admin", IsActive: true, IsPlatformAdmin: true,
+	}); err != nil || actorLogin {
+		t.Fatalf("promotion = actor_login=%v error=%v", actorLogin, err)
+	}
+	if err := s.pool.QueryRow(ctx, `SELECT u.revision,u.security_version,s.revoked_at IS NOT NULL,
+	    s.reauth_required,(SELECT count(*) FROM databrain.session_tokens st WHERE st.session_id=s.id)
+	    FROM databrain.users u JOIN databrain.sessions s ON s.user_id=u.id WHERE u.id=$1 AND s.id=$2`, userID, state.ID).
+		Scan(&revision, &version, &revoked, &reauth, &tokens); err != nil || revision != 3 || version != 1 || revoked || !reauth || tokens != 2 {
+		t.Fatal("promotion did not rotate and require reauthentication")
+	}
+
+	if _, err := s.EditUser(ctx, actor, userID, EditUserInput{
+		ExpectedRevision: 3, DisplayName: "Renamed admin", IsActive: true,
+	}); err != nil {
+		t.Fatal("demotion failed:", err)
+	}
+	if err := s.pool.QueryRow(ctx, `SELECT u.revision,u.security_version,s.revoked_at IS NOT NULL
+	    FROM databrain.users u JOIN databrain.sessions s ON s.user_id=u.id WHERE u.id=$1 AND s.id=$2`, userID, state.ID).
+		Scan(&revision, &version, &revoked); err != nil || revision != 4 || version != 2 || !revoked {
+		t.Fatal("demotion did not revoke the edited user")
+	}
+	if _, err := s.EditUser(ctx, actor, userID, EditUserInput{
+		ExpectedRevision: 3, DisplayName: "Stale", IsActive: true,
+	}); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatal("stale user edit did not report revision conflict")
+	}
+
+	state, _, err = s.sessions.(*auth.Service).CreateAnonymous(ctx)
+	if err != nil {
+		t.Fatal("cannot seed deactivation family")
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE databrain.sessions SET kind='authenticated',user_id=$2,security_version=2
+	    WHERE id=$1`, state.ID, userID); err != nil {
+		t.Fatal("cannot authenticate deactivation fixture")
+	}
+	if _, err := s.EditUser(ctx, actor, userID, EditUserInput{
+		ExpectedRevision: 4, DisplayName: "Disabled", IsActive: false,
+	}); err != nil {
+		t.Fatal("deactivation failed:", err)
+	}
+	if err := s.pool.QueryRow(ctx, `SELECT u.is_active,u.revision,u.security_version,s.revoked_at IS NOT NULL
+	    FROM databrain.users u JOIN databrain.sessions s ON s.user_id=u.id WHERE u.id=$1 AND s.id=$2`, userID, state.ID).
+		Scan(&active, &revision, &version, &revoked); err != nil || active || revision != 5 || version != 3 || !revoked {
+		t.Fatal("deactivation did not atomically revoke the edited user")
+	}
+	if _, err := s.EditUser(ctx, actor, userID, EditUserInput{
+		ExpectedRevision: 5, DisplayName: "Reactivated", IsActive: true,
+	}); err != nil {
+		t.Fatal("reactivation failed:", err)
+	}
+	if err := s.pool.QueryRow(ctx, "SELECT is_active,revision,security_version FROM databrain.users WHERE id=$1", userID).
+		Scan(&active, &revision, &version); err != nil || !active || revision != 6 || version != 3 {
+		t.Fatal("reactivation did not use the privilege-increase effect")
+	}
+
+	combinedID, err := s.CreateUser(ctx, actor, CreateUserInput{
+		Username: "combined_user", DisplayName: "Combined", Password: "Fixture-combined-password",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EditUser(ctx, actor, combinedID, EditUserInput{
+		ExpectedRevision: 1, DisplayName: "Combined", IsActive: false, IsPlatformAdmin: true,
+	}); err != nil {
+		t.Fatal("combined deactivation and promotion failed:", err)
+	}
+	if err := s.pool.QueryRow(ctx, "SELECT is_active,is_platform_admin,revision,security_version FROM databrain.users WHERE id=$1", combinedID).
+		Scan(&active, &admin, &revision, &version); err != nil || active || !admin || revision != 2 || version != 2 {
+		t.Fatal("deactivation did not dominate the combined role promotion")
+	}
+	if _, err := s.EditUser(ctx, actor, actor.UserID, EditUserInput{
+		ExpectedRevision: 1, DisplayName: "Fixture admin", IsActive: true,
+	}); !errors.Is(err, ErrLastAdmin) {
+		t.Fatal("last active admin demotion was accepted")
+	}
+}
+
 func TestAdminCreationCapsConcurrent(t *testing.T) {
 	s, actor := adminFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -356,6 +469,14 @@ func TestAdminGroupRelationsDatabase(t *testing.T) {
 	}
 	if _, err := s.SetGrant(ctx, actor, groupID, targetID, access.ViewOnly); err != nil {
 		t.Fatal(err)
+	}
+	detail, members, memberChoices, grants, databaseChoices, err := s.GroupDetails(ctx, actor, groupID)
+	if err != nil || detail.ID != groupID.String() || len(members) != 1 || members[0].ID != userID.String() ||
+		len(memberChoices) != 1 || memberChoices[0].ID != actor.UserID.String() || len(grants) != 1 ||
+		grants[0].DatabaseID != targetID.String() || grants[0].Access != access.ViewOnly ||
+		len(databaseChoices) != 1 || databaseChoices[0].ID != targetID.String() {
+		t.Fatalf("group detail = %+v members=%+v choices=%+v grants=%+v databases=%+v error=%v",
+			detail, members, memberChoices, grants, databaseChoices, err)
 	}
 	if err := s.pool.QueryRow(ctx, "SELECT count(*) FROM databrain.session_tokens WHERE session_id=$1", targetSession.ID).Scan(&tokenCount); err != nil || tokenCount != 3 {
 		t.Fatal("grant addition did not rotate the family")
