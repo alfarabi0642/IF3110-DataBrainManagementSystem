@@ -20,6 +20,8 @@ const (
 	DatabaseAccessDenied   Code = "DATABASE_ACCESS_DENIED"
 	DatabaseNotFound       Code = "DATABASE_NOT_FOUND"
 	DraftNotFound          Code = "DRAFT_NOT_FOUND"
+	SQLInvalid             Code = "SQL_INVALID"
+	SQLUnsupported         Code = "SQL_UNSUPPORTED"
 	TargetConnectionFailed Code = "TARGET_CONNECTION_FAILED"
 	TargetUnavailable      Code = "TARGET_UNAVAILABLE"
 	TargetBusy             Code = "TARGET_BUSY"
