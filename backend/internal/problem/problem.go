@@ -25,6 +25,8 @@ const (
 	TargetConflict         Code = "TARGET_CONFLICT"
 	RelationNotFound       Code = "RELATION_NOT_FOUND"
 	RelationChanged        Code = "RELATION_CHANGED"
+	CellTooLarge           Code = "CELL_TOO_LARGE"
+	UnsupportedColumnType  Code = "UNSUPPORTED_COLUMN_TYPE"
 	ExecutionCapacity      Code = "EXECUTION_CAPACITY"
 )
 
