@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
@@ -26,12 +27,37 @@ type RateLimitError struct {
 
 func (e *RateLimitError) Error() string { return "login rate limit exceeded" }
 
-func loginClient(remoteAddr string) (string, error) {
+func loginClient(remoteAddr, forwardedFor string, trusted []netip.Prefix) (string, error) {
 	address, err := netip.ParseAddrPort(remoteAddr)
 	if err != nil {
 		return "", sessionFailure(problem.InvalidRequest)
 	}
-	return address.Addr().Unmap().String(), nil
+	client := address.Addr().Unmap()
+	if !containsIP(trusted, client) || strings.TrimSpace(forwardedFor) == "" {
+		return client.String(), nil
+	}
+	chain := strings.Split(forwardedFor, ",")
+	for i := len(chain) - 1; i >= 0; i-- {
+		raw := strings.TrimSpace(chain[i])
+		ip, err := netip.ParseAddr(raw)
+		if err != nil || ip.Zone() != "" {
+			return "", sessionFailure(problem.InvalidRequest)
+		}
+		client = ip.Unmap()
+		if !containsIP(trusted, client) {
+			return client.String(), nil
+		}
+	}
+	return client.String(), nil
+}
+
+func containsIP(prefixes []netip.Prefix, ip netip.Addr) bool {
+	for _, prefix := range prefixes {
+		if prefix.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func rateLimitHash(key [32]byte, kind, value string) [32]byte {
@@ -45,10 +71,10 @@ func rateLimitHash(key [32]byte, kind, value string) [32]byte {
 }
 
 // checkLoginRateLimit atomically consumes both the normalized username and
-// direct client buckets. Forwarding headers are deliberately ignored until a
-// trusted proxy list is configured by the composition root.
-func (s *Service) checkLoginRateLimit(ctx context.Context, username, remoteAddr string) error {
-	client, err := loginClient(remoteAddr)
+// resolved client buckets. Forwarding headers are trusted only from configured
+// proxy networks.
+func (s *Service) checkLoginRateLimit(ctx context.Context, username, remoteAddr, forwardedFor string) error {
+	client, err := loginClient(remoteAddr, forwardedFor, s.trustedProxies)
 	if err != nil {
 		return err
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
@@ -100,7 +101,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		h.renderLogin(w, r, http.StatusConflict, page)
 		return
 	}
-	if err := h.service.checkLoginRateLimit(r.Context(), username, r.RemoteAddr); err != nil {
+	if err := h.service.checkLoginRateLimit(r.Context(), username, r.RemoteAddr, strings.Join(r.Header.Values("X-Forwarded-For"), ",")); err != nil {
 		var limited *RateLimitError
 		if errors.As(err, &limited) {
 			w.Header().Set("Retry-After", strconv.Itoa(limited.RetryAfter))

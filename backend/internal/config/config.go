@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -11,9 +12,10 @@ import (
 )
 
 type Config struct {
-	HTTPAddr  string
-	AppEnv    string
-	AppOrigin string
+	HTTPAddr          string
+	AppEnv            string
+	AppOrigin         string
+	TrustedProxyCIDRs string
 }
 
 func Load() (Config, error) {
@@ -61,7 +63,32 @@ func load(lookup func(string) (string, bool)) (Config, error) {
 			return Config{}, fmt.Errorf("APP_ORIGIN requires HTTPS except on development/test loopback")
 		}
 	}
+	cfg.TrustedProxyCIDRs, err = normalizeProxyCIDRs(value("TRUSTED_PROXY_CIDRS", ""))
+	if err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+func normalizeProxyCIDRs(raw string) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return "", nil
+	}
+	seen := make(map[netip.Prefix]struct{})
+	values := make([]string, 0)
+	for _, value := range strings.Split(raw, ",") {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(value))
+		if err != nil {
+			return "", fmt.Errorf("TRUSTED_PROXY_CIDRS must contain IP prefixes")
+		}
+		prefix = prefix.Masked()
+		if _, ok := seen[prefix]; ok {
+			continue
+		}
+		seen[prefix] = struct{}{}
+		values = append(values, prefix.String())
+	}
+	return strings.Join(values, ","), nil
 }
 
 func validPort(port string) bool {

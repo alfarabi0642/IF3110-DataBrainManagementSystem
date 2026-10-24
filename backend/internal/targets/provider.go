@@ -197,7 +197,7 @@ func (p *Provider) connect(ctx context.Context, in CreateInput, application stri
 		_ = conn.Close(bounded)
 		return finish(Other)
 	}
-	if result.ServerVersion/10000 != 17 {
+	if !supportedServerVersion(result.ServerVersion) {
 		_ = conn.Close(bounded)
 		return finish(UnsupportedVersion)
 	}
@@ -207,6 +207,11 @@ func (p *Provider) connect(ctx context.Context, in CreateInput, application stri
 	}
 	result.OK, result.Latency = true, time.Since(started)
 	return conn, result
+}
+
+func supportedServerVersion(version int) bool {
+	major := version / 10000
+	return major == 17 || major == 18
 }
 
 // Probe validates the proposed connection, opens it for at most five seconds,

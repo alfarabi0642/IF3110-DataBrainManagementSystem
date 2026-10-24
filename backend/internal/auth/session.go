@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -43,8 +44,9 @@ const (
 type Clock func() time.Time
 
 type Policy struct {
-	AppEnv    string
-	AppOrigin string
+	AppEnv            string
+	AppOrigin         string
+	TrustedProxyCIDRs string
 }
 
 type Session struct {
@@ -57,12 +59,13 @@ type Session struct {
 }
 
 type Service struct {
-	pool       *pgxpool.Pool
-	secrets    *secret.Secrets
-	clock      Clock
-	appOrigin  string
-	cookieName string
-	secure     bool
+	pool           *pgxpool.Pool
+	secrets        *secret.Secrets
+	clock          Clock
+	appOrigin      string
+	cookieName     string
+	secure         bool
+	trustedProxies []netip.Prefix
 }
 
 var (
@@ -92,11 +95,31 @@ func NewService(pool *pgxpool.Pool, secrets *secret.Secrets, policy Policy, cloc
 	if clock == nil {
 		clock = time.Now
 	}
+	trustedProxies, err := parseTrustedProxies(policy.TrustedProxyCIDRs)
+	if err != nil {
+		return nil, err
+	}
 	name := SessionCookieName
 	if policy.AppEnv == "production" {
 		name = ProductionCookieName
 	}
-	return &Service{pool: pool, secrets: secrets, clock: clock, appOrigin: policy.AppOrigin, cookieName: name, secure: secure}, nil
+	return &Service{pool: pool, secrets: secrets, clock: clock, appOrigin: policy.AppOrigin, cookieName: name, secure: secure, trustedProxies: trustedProxies}, nil
+}
+
+func parseTrustedProxies(raw string) ([]netip.Prefix, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	values := strings.Split(raw, ",")
+	result := make([]netip.Prefix, 0, len(values))
+	for _, value := range values {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(value))
+		if err != nil {
+			return nil, errors.New("auth: invalid trusted proxy prefix")
+		}
+		result = append(result, prefix.Masked())
+	}
+	return result, nil
 }
 
 func sessionFailure(code problem.Code) error { return &problem.Error{Code: code} }
