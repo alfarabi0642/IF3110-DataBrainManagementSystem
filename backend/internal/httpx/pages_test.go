@@ -88,7 +88,7 @@ func TestExplorerPage(t *testing.T) {
 
 func TestDraftPages(t *testing.T) {
 	draft := map[string]any{"ID": "d1", "Title": `"><x>`, "SQL": "\nSELECT 1; </textarea><script>", "Revision": 3, "UpdatedBy": "ana", "UpdatedAt": "t"}
-	body := renderPage(t, "draft", map[string]any{"Draft": draft, "Error": "", "Conflict": true})
+	body := renderPage(t, "draft", map[string]any{"Draft": draft, "Error": "", "Conflict": true, "CanReview": true})
 	mustContain(t, body, `name="_csrf" value="tok"`, `name="expected_revision" value="3"`, `action="/databases/db1/drafts/d1"`,
 		"&lt;/textarea&gt;&lt;script&gt;", "newer revision", `/drafts/d1/review`)
 	// The template newline may be LF or CRLF; the SQL's leading newline must remain.
@@ -97,6 +97,8 @@ func TestDraftPages(t *testing.T) {
 		t.Error("SQL textarea did not preserve the leading SQL newline after the template newline")
 	}
 	mustNotContain(t, body, "<script>", `"><x>`)
+	body = renderPage(t, "draft", map[string]any{"Draft": draft, "Error": "", "Conflict": false, "CanReview": false})
+	mustNotContain(t, body, `/drafts/d1/review`, `/execute`)
 
 	body = renderPage(t, "drafts", map[string]any{"Drafts": nil, "Pager": nil, "Form": map[string]any{"Title": "", "SQL": ""}, "Error": "Check the form fields."})
 	mustContain(t, body, `action="/databases/db1/drafts"`, `name="title"`, "Check the form fields.", "No drafts yet")

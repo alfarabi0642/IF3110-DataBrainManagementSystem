@@ -130,7 +130,7 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 			return 403, p.Code, "Open a new form and try again."
 		case problem.AdminRequired, problem.DatabaseAccessDenied:
 			return 403, p.Code, "Access denied."
-		case problem.DatabaseNotFound:
+		case problem.DatabaseNotFound, problem.DraftNotFound:
 			return 404, p.Code, "Resource not available."
 		case problem.PlatformUnavailable:
 			return 503, p.Code, "Platform unavailable."
