@@ -37,6 +37,29 @@ func TestBootstrapAdminValidatesBeforeDatabase(t *testing.T) {
 	}
 }
 
+func TestAccountNameValidationAndLoginNormalization(t *testing.T) {
+	if got := NormalizeLoginUsername(" \tAdmin_1\n"); got != "admin_1" {
+		t.Fatalf("normalized username = %q", got)
+	}
+	for _, username := range []string{"ana", "a_1", "z" + strings.Repeat("0", 31)} {
+		if err := ValidateUsername(username); err != nil {
+			t.Fatalf("valid username %q rejected: %v", username, err)
+		}
+	}
+	for _, username := range []string{"A_user", "a", "a-b", "a" + strings.Repeat("0", 32)} {
+		if err := ValidateUsername(username); !errors.Is(err, ErrInvalidUsername) {
+			t.Fatalf("invalid username %q accepted", username)
+		}
+	}
+	displayName, err := NormalizeDisplayName(" \tAna 猫\n")
+	if err != nil || displayName != "Ana 猫" {
+		t.Fatalf("display name = %q, %v", displayName, err)
+	}
+	if _, err := NormalizeDisplayName("bad\x00name"); !errors.Is(err, ErrInvalidDisplayName) {
+		t.Fatal("display name with NUL accepted")
+	}
+}
+
 func bootstrapFixture(t *testing.T) *platformdb.DB {
 	t.Helper()
 	raw := os.Getenv("DATABRAIN_TEST_ADMIN_URL")
