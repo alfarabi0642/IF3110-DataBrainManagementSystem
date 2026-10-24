@@ -14,3 +14,9 @@
 {{define "cell"}}{{if .Null}}<span class="null">NULL</span>{{else if eq .Text ""}}<span class="empty-string">(empty)</span>{{else}}{{.Text}}{{end}}{{end}}
 
 {{define "yesno"}}{{if .}}yes{{else}}no{{end}}{{end}}
+
+{{/* sslmode: the SSL mode select for a connection form; data has SSLMode (verify-full or disable). */}}
+{{define "sslmode"}}<select id="ssl_mode" name="ssl_mode">
+  <option value="verify-full"{{if ne .SSLMode "disable"}} selected{{end}}>verify-full (verifies the server certificate)</option>
+  <option value="disable"{{if eq .SSLMode "disable"}} selected{{end}}>disable (no encryption, development only)</option>
+</select>{{end}}
