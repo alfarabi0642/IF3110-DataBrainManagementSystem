@@ -11,9 +11,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/access"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/auth"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/config"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/secret"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/targets"
 )
 
 func main() {
@@ -34,10 +38,23 @@ func run(logger *slog.Logger) (err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Validate UI sources at startup when supplied. Page handlers will receive
-	// the renderer when their real templates and auth dependencies are available.
-	if _, err := httpx.LoadTemplates("web/templates"); err != nil {
+	renderer, err := httpx.LoadTemplates("web/templates")
+	if err != nil {
 		logger.Error("unable to load HTML templates")
+		return err
+	}
+	key, err := config.LoadSecretKey()
+	if err != nil {
+		logger.Error("invalid application secret configuration")
+		return err
+	}
+	secrets, err := secret.New(key)
+	if err != nil {
+		return err
+	}
+	targetSettings, err := config.LoadTargetSettings(cfg.AppEnv)
+	if err != nil {
+		logger.Error("invalid target configuration")
 		return err
 	}
 	databaseURL, err := config.LoadPlatformDatabaseURL(cfg.AppEnv)
@@ -61,6 +78,30 @@ func run(logger *slog.Logger) (err error) {
 		}
 	}()
 	mux := httpx.NewRouter(db.Ready)
+	provider, err := targets.NewProvider(db.Pool, secrets, targetSettings)
+	if err != nil {
+		return err
+	}
+	sessions, err := auth.NewService(db.Pool, secrets, auth.Policy{AppEnv: cfg.AppEnv, AppOrigin: cfg.AppOrigin}, nil)
+	if err != nil {
+		return err
+	}
+	middleware, err := auth.NewMiddleware(sessions)
+	if err != nil {
+		return err
+	}
+	authorizer, err := access.NewAuthorizer(db.Pool)
+	if err != nil {
+		return err
+	}
+	handler, err := targets.NewHandler(provider, authorizer, renderer)
+	if err != nil {
+		logger.Error("database page templates unavailable")
+		return err
+	}
+	if !handler.Register(mux, middleware) {
+		logger.Info("admin connection routes pending admin_databases and admin_database templates")
+	}
 	assets, err := httpx.MountStatic(mux, "web/static")
 	if err != nil {
 		logger.Error("unable to open static directory")

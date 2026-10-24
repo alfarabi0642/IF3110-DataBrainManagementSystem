@@ -12,11 +12,12 @@ import (
 
 // UserDatabase contains only data allowed on the user's database list.
 type UserDatabase struct {
-	ID                 uuid.UUID
-	Name               string
-	EffectiveAccess    access.Level
-	ActiveAttemptID    *uuid.UUID
-	ActiveAttemptState string
+	ID                   uuid.UUID
+	Name                 string
+	EffectiveAccess      access.Level
+	ActiveAttemptID      *uuid.UUID
+	ActiveAttemptState   string
+	ActiveAttemptVersion string
 }
 
 // ListForUser reads current group grants for the validated session's user ID.
@@ -41,7 +42,7 @@ func (p *Provider) ListForUser(ctx context.Context, userID uuid.UUID, limit, off
 	    JOIN databrain.memberships m ON m.group_id=g.id
 	    JOIN databrain.users u ON u.id=m.user_id AND u.is_active
 	    WHERE u.id=$1 GROUP BY dg.target_id
-	) SELECT t.id,t.name,e.level,s.active_attempt_id,coalesce(a.state,'')
+	) SELECT t.id,t.name,e.level,s.active_attempt_id,coalesce(a.state,''),coalesce(a.version::text,'')
 	    FROM databrain.database_targets t JOIN effective e ON e.target_id=t.id
 	    LEFT JOIN databrain.migration_streams s ON s.target_id=t.id
 	    LEFT JOIN databrain.migration_attempts a ON a.target_id=t.id AND a.id=s.active_attempt_id
@@ -53,7 +54,7 @@ func (p *Provider) ListForUser(ctx context.Context, userID uuid.UUID, limit, off
 	items := make([]UserDatabase, 0, limit)
 	for rows.Next() {
 		var item UserDatabase
-		if err := rows.Scan(&item.ID, &item.Name, &item.EffectiveAccess, &item.ActiveAttemptID, &item.ActiveAttemptState); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.EffectiveAccess, &item.ActiveAttemptID, &item.ActiveAttemptState, &item.ActiveAttemptVersion); err != nil {
 			return nil, false, failure(problem.PlatformUnavailable)
 		}
 		items = append(items, item)

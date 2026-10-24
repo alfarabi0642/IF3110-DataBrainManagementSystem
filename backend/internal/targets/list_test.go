@@ -123,11 +123,11 @@ func TestDatabaseLists(t *testing.T) {
 				t.Fatal("list changed the stored target name")
 			}
 			if item.ID == first.ID {
-				if item.EffectiveAccess != access.ViewEdit || item.ActiveAttemptID == nil || *item.ActiveAttemptID != attempt || item.ActiveAttemptState != "reserved" {
+				if item.EffectiveAccess != access.ViewEdit || item.ActiveAttemptID == nil || *item.ActiveAttemptID != attempt || item.ActiveAttemptState != "reserved" || item.ActiveAttemptVersion != "1" {
 					t.Fatal("highest active grant or active attempt is wrong")
 				}
 			} else if item.ID == second.ID {
-				if item.EffectiveAccess != access.ViewOnly || item.ActiveAttemptID != nil || item.ActiveAttemptState != "" {
+				if item.EffectiveAccess != access.ViewOnly || item.ActiveAttemptID != nil || item.ActiveAttemptState != "" || item.ActiveAttemptVersion != "" {
 					t.Fatal("inactive group's grant affected access or an attempt leaked across targets")
 				}
 			} else {
