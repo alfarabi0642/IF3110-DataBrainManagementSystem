@@ -84,6 +84,7 @@ func lookupReceipt(ctx context.Context, db platformdb.DBTX, targetID, actorID, k
 
 // Receipt returns nil when this actor has no receipt for this target/key.
 // Absence alone does not prove that an earlier request cannot still commit.
+// Callers must authorize the target and obtain actorID from the validated session.
 func (s *AttemptStore) Receipt(ctx context.Context, targetID, actorID, key uuid.UUID) (*AttemptReceipt, error) {
 	if targetID == uuid.Nil || actorID == uuid.Nil || key == uuid.Nil {
 		return nil, attemptFailure(problem.InvalidRequest)
