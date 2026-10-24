@@ -1,5 +1,5 @@
 // Package targets stores target configuration and opens dedicated connections.
-// Callers must authorize access before using it; no HTTP routes are installed.
+// Callers must authorize access before using the Provider directly.
 package targets
 
 import (

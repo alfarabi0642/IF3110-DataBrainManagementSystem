@@ -22,6 +22,11 @@ type Renderer struct {
 	templates *template.Template
 }
 
+// HasTemplate lets route wiring wait for a page's real UI dependency.
+func (renderer *Renderer) HasTemplate(name string) bool {
+	return renderer != nil && renderer.templates != nil && renderer.templates.Lookup(name) != nil
+}
+
 // LoadTemplates permits an absent UI directory. An existing directory must
 // contain valid .html templates; startup must stop on any load/parse error.
 func LoadTemplates(dir string) (*Renderer, error) {
@@ -103,6 +108,14 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 			return 422, p.Code, "Check the form fields."
 		case problem.RevisionConflict:
 			return 409, p.Code, "The resource changed. Open the latest version before saving."
+		case problem.TargetBusy:
+			return 409, p.Code, "Resolve the active migration before editing this connection."
+		case problem.TargetConflict:
+			return 409, p.Code, "A connection for this database already exists."
+		case problem.TargetConnectionFailed:
+			return 422, p.Code, "The target connection could not be verified. Check its settings."
+		case problem.TargetUnavailable:
+			return 503, p.Code, "Target unavailable."
 		case problem.SessionInvalid:
 			return 401, p.Code, "Authentication required."
 		case problem.CSRFInvalid, problem.OriginRejected:
