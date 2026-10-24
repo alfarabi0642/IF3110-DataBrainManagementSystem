@@ -3,9 +3,11 @@ S-03. Data: Layout, Users (ID, Username, DisplayName, IsActive, IsAdmin, Revisio
 Form (Username, DisplayName, IsAdmin), and Error. Password is never redisplayed.
 */}}
 {{define "admin_users"}}{{template "header" .}}
+<p class="page-intro">Create accounts and review active, inactive, and platform administrator access.</p>
 {{if .Users}}
 <div class="table-wrap">
 <table>
+  <caption class="sr-only">Platform user accounts</caption>
   <thead><tr><th>Username</th><th>Display name</th><th>Status</th><th>Platform admin</th><th>Revision</th></tr></thead>
   <tbody>
   {{range .Users}}
@@ -27,19 +29,22 @@ Form (Username, DisplayName, IsAdmin), and Error. Password is never redisplayed.
 
 <h2>Create user</h2>
 {{with .Error}}<p class="status failed" role="alert">{{.}}</p>{{end}}
-<form method="post" action="/admin/users">
+<form method="post" action="/admin/users" class="panel form-panel">
   <input type="hidden" name="_csrf" value="{{.CSRF}}">
   <label for="username">Username</label>
-  <input id="username" name="username" minlength="3" maxlength="32" pattern="[a-z][a-z0-9_]{2,31}" required value="{{.Form.Username}}">
+  <input id="username" name="username" minlength="3" maxlength="32" pattern="[a-z][a-z0-9_]{2,31}" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="username-help" required value="{{.Form.Username}}">
+  <p id="username-help" class="form-help">Use 3–32 lowercase letters, numbers, or underscores, beginning with a letter. It cannot be changed later.</p>
   <label for="display_name">Display name</label>
-  <input id="display_name" name="display_name" required value="{{.Form.DisplayName}}">
+  <input id="display_name" name="display_name" maxlength="80" autocomplete="off" required value="{{.Form.DisplayName}}">
   <label for="password">Password</label>
-  <input id="password" name="password" type="password" autocomplete="new-password" required>
+  <input id="password" name="password" type="password" autocomplete="new-password" aria-describedby="password-help" required>
+  <p id="password-help" class="form-help">Use 12–128 UTF-8 bytes. The password is never shown again.</p>
   <label for="is_platform_admin">Account type</label>
   <select id="is_platform_admin" name="is_platform_admin" required>
     <option value="false"{{if not .Form.IsAdmin}} selected{{end}}>Regular user</option>
     <option value="true"{{if .Form.IsAdmin}} selected{{end}}>Platform admin</option>
   </select>
+  <p class="form-help">New platform administrators must sign in before using administrator access.</p>
   <button type="submit">Create user</button>
 </form>
 {{template "footer" .}}{{end}}
