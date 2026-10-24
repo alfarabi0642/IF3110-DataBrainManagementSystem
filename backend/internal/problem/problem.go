@@ -20,6 +20,7 @@ const (
 	DatabaseAccessDenied   Code = "DATABASE_ACCESS_DENIED"
 	DatabaseNotFound       Code = "DATABASE_NOT_FOUND"
 	DraftNotFound          Code = "DRAFT_NOT_FOUND"
+	AttemptNotFound        Code = "ATTEMPT_NOT_FOUND"
 	IdempotencyConflict    Code = "IDEMPOTENCY_CONFLICT"
 	DraftAlreadyExecuted   Code = "DRAFT_ALREADY_EXECUTED"
 	SQLInvalid             Code = "SQL_INVALID"

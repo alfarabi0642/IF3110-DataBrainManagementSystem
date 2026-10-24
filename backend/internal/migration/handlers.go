@@ -45,34 +45,39 @@ type DraftPage struct {
 
 type Handler struct {
 	store      *DraftStore
+	runner     *Runner
 	authorizer access.Authorizer
 	renderer   *httpx.Renderer
 }
 
-func NewHandler(store *DraftStore, authorizer access.Authorizer, renderer *httpx.Renderer) (*Handler, error) {
-	if store == nil || store.pool == nil || authorizer == nil || !renderer.HasTemplate("drafts") || !renderer.HasTemplate("draft") || !renderer.HasTemplate("error") {
+func NewHandler(store *DraftStore, runner *Runner, authorizer access.Authorizer, renderer *httpx.Renderer) (*Handler, error) {
+	if store == nil || store.pool == nil || runner == nil || runner.store == nil || runner.store.pool != store.pool || authorizer == nil || !renderer.HasTemplate("drafts") || !renderer.HasTemplate("draft") || !renderer.HasTemplate("review") || !renderer.HasTemplate("history") || !renderer.HasTemplate("attempt") || !renderer.HasTemplate("error") {
 		return nil, draftFailure(problem.InternalError)
 	}
-	return &Handler{store, authorizer, renderer}, nil
+	return &Handler{store, runner, authorizer, renderer}, nil
 }
 
 func (h *Handler) Register(mux *http.ServeMux, middleware *auth.Middleware) {
-	register := func(pattern string, post bool, fn http.HandlerFunc) {
+	register := func(pattern string, post bool, timeout time.Duration, fn http.HandlerFunc) {
 		var next http.Handler = fn
 		if post {
 			next = httpx.LimitBody(httpx.MaxFormBody, middleware.RequireCSRF(next))
 		}
 		next = middleware.RequireSession(next)
 		mux.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 			next.ServeHTTP(w, r.WithContext(ctx))
 		}))
 	}
-	register("GET /databases/{database_id}/drafts", false, h.list)
-	register("POST /databases/{database_id}/drafts", true, h.create)
-	register("GET /databases/{database_id}/drafts/{draft_id}", false, h.detail)
-	register("POST /databases/{database_id}/drafts/{draft_id}", true, h.save)
+	register("GET /databases/{database_id}/drafts", false, 10*time.Second, h.list)
+	register("POST /databases/{database_id}/drafts", true, 10*time.Second, h.create)
+	register("GET /databases/{database_id}/drafts/{draft_id}", false, 10*time.Second, h.detail)
+	register("POST /databases/{database_id}/drafts/{draft_id}", true, 10*time.Second, h.save)
+	register("GET /databases/{database_id}/drafts/{draft_id}/review", false, 10*time.Second, h.review)
+	register("POST /databases/{database_id}/drafts/{draft_id}/execute", true, 65*time.Second, h.execute)
+	register("GET /databases/{database_id}/migrations", false, 10*time.Second, h.history)
+	register("GET /databases/{database_id}/migrations/{attempt_id}", false, 10*time.Second, h.attempt)
 }
 
 func (h *Handler) fail(w http.ResponseWriter, r *http.Request, layout httpx.Layout, err error) {
@@ -97,6 +102,10 @@ func draftPathID(r *http.Request, name string) (uuid.UUID, error) {
 // prepare authorizes before any draft/display lookup. Identity is exclusively
 // the session validated by Brain's middleware and rechecked by Authorizer.
 func (h *Handler) prepare(r *http.Request) (httpx.Layout, access.Principal, uuid.UUID, error) {
+	return h.prepareAction(r, access.MigrationWrite)
+}
+
+func (h *Handler) prepareAction(r *http.Request, action access.Action) (httpx.Layout, access.Principal, uuid.UUID, error) {
 	layout := httpx.Layout{Title: "Drafts", Active: "drafts"}
 	state, ok := auth.SessionFromContext(r.Context())
 	principal, present := access.FromContext(r.Context())
@@ -108,7 +117,8 @@ func (h *Handler) prepare(r *http.Request) (httpx.Layout, access.Principal, uuid
 	if err != nil {
 		return layout, principal, id, err
 	}
-	if _, err = h.authorizer.RequireDatabase(r.Context(), principal, id, access.MigrationWrite); err != nil {
+	level, err := h.authorizer.RequireDatabase(r.Context(), principal, id, action)
+	if err != nil {
 		return layout, principal, id, err
 	}
 	lease, err := platformdb.Acquire(r.Context(), h.store.pool)
@@ -117,7 +127,7 @@ func (h *Handler) prepare(r *http.Request) (httpx.Layout, access.Principal, uuid
 	}
 	defer lease.Release()
 	user := &httpx.LayoutUser{}
-	database := &httpx.LayoutDatabase{ID: id.String(), CanEdit: true}
+	database := &httpx.LayoutDatabase{ID: id.String(), CanEdit: level == access.ViewEdit}
 	err = lease.QueryRow(r.Context(), `SELECT u.display_name,u.username,u.is_platform_admin,t.name
 	    FROM databrain.users u CROSS JOIN databrain.database_targets t
 	    WHERE u.id=$1 AND u.is_active AND u.security_version=$2 AND t.id=$3 AND t.is_active`, principal.UserID, principal.SecurityVersion, id).
@@ -238,7 +248,7 @@ func (h *Handler) renderDraft(w http.ResponseWriter, r *http.Request, layout htt
 		item.Title, item.SQL, item.Revision = input.Title, input.SQL, strconv.FormatInt(input.ExpectedRevision, 10)
 	}
 	layout.Title = "Edit draft"
-	h.render(w, r, layout, status, "draft", DraftPage{Layout: layout, Draft: item, Error: message, Conflict: conflict})
+	h.render(w, r, layout, status, "draft", DraftPage{Layout: layout, Draft: item, Error: message, Conflict: conflict, CanReview: status == http.StatusOK})
 }
 
 func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {

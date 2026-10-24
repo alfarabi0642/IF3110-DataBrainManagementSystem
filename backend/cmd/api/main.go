@@ -114,9 +114,13 @@ func run(logger *slog.Logger) (err error) {
 		return err
 	}
 	explorerHandler.Register(mux, middleware)
-	draftHandler, err := migration.NewHandler(migration.NewDraftStore(db.Pool), authorizer, renderer)
+	runner, err := migration.NewRunner(migration.NewAttemptStore(db.Pool), provider, authorizer)
 	if err != nil {
-		logger.Error("draft page templates unavailable")
+		return err
+	}
+	draftHandler, err := migration.NewHandler(migration.NewDraftStore(db.Pool), runner, authorizer, renderer)
+	if err != nil {
+		logger.Error("migration page templates unavailable")
 		return err
 	}
 	draftHandler.Register(mux, middleware)

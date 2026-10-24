@@ -1,10 +1,18 @@
-{{/* J-04. Data: Layout, Draft (ID, Title, SQL, Revision), RequestKey (UUID chosen by the server). */}}
+{{/* J-04. Data: Layout, Draft, RequestKey; Error/Code/RequestID and same-key ReviewHref/ReceiptHref on errors. */}}
 {{define "review"}}{{template "header" .}}
+{{if .Error}}
+<p class="status failed" role="alert">{{.Error}}</p>
+<p>Error code: <code>{{.Code}}</code>{{with .RequestID}} · Request ID: <code>{{.}}</code>{{end}}</p>
+<p>The result may already be recorded. Check this request before deciding what to do next.</p>
+<p><a href="{{.ReceiptHref}}">Find this request's receipt</a> · <a href="{{.ReviewHref}}">Open the same review</a></p>
+{{end}}
 <dl class="meta">
   <dt>Database</dt><dd>{{.Database.Name}}</dd>
   <dt>Draft</dt><dd>{{.Draft.Title}}</dd>
   <dt>Revision</dt><dd>{{.Draft.Revision}}</dd>
+  <dt>Request key</dt><dd><code>{{.RequestKey}}</code></dd>
 </dl>
+{{if not .Error}}
 <h2>SQL to run</h2>
 <pre>{{.Draft.SQL}}</pre>
 <p>All statements run in one transaction. If any statement fails, none are applied.</p>
@@ -14,5 +22,6 @@
   <input type="hidden" name="request_key" value="{{.RequestKey}}">
   <button type="submit">Execute saved revision</button>
 </form>
+{{end}}
 <p><a href="/databases/{{.Database.ID}}/drafts/{{.Draft.ID}}">Back to the editor</a></p>
 {{template "footer" .}}{{end}}
