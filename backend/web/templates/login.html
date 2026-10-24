@@ -3,6 +3,16 @@ S-02. Data: Layout with no normal User, Username (safe redisplay), Error (generi
 message), and Reauth. Password is deliberately absent from page data.
 */}}
 {{define "login"}}{{template "header" .}}
+<section class="stage" aria-label="About DataBrain">
+  <div class="stage-art" aria-hidden="true"></div>
+  <p class="stage-kicker">PostgreSQL workspace</p>
+  <p class="stage-line">Explore every table. <em>Migrate</em> with a memory.</p>
+  <ul class="stage-facts">
+    <li>One transaction per run</li>
+    <li>Durable, searchable history</li>
+    <li>Group-based access</li>
+  </ul>
+</section>
 <div class="auth-panel panel">
 {{if .Reauth}}
 <p class="status unknown" role="status">Your access changed. Please sign in again to continue safely.</p>
