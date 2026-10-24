@@ -23,6 +23,8 @@ const (
 	TargetUnavailable      Code = "TARGET_UNAVAILABLE"
 	TargetBusy             Code = "TARGET_BUSY"
 	TargetConflict         Code = "TARGET_CONFLICT"
+	RelationNotFound       Code = "RELATION_NOT_FOUND"
+	RelationChanged        Code = "RELATION_CHANGED"
 	ExecutionCapacity      Code = "EXECUTION_CAPACITY"
 )
 
