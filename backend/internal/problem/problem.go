@@ -19,12 +19,17 @@ const (
 	AdminRequired          Code = "ADMIN_REQUIRED"
 	DatabaseAccessDenied   Code = "DATABASE_ACCESS_DENIED"
 	DatabaseNotFound       Code = "DATABASE_NOT_FOUND"
+	DraftNotFound          Code = "DRAFT_NOT_FOUND"
+	SQLInvalid             Code = "SQL_INVALID"
+	SQLUnsupported         Code = "SQL_UNSUPPORTED"
 	TargetConnectionFailed Code = "TARGET_CONNECTION_FAILED"
 	TargetUnavailable      Code = "TARGET_UNAVAILABLE"
 	TargetBusy             Code = "TARGET_BUSY"
 	TargetConflict         Code = "TARGET_CONFLICT"
 	RelationNotFound       Code = "RELATION_NOT_FOUND"
 	RelationChanged        Code = "RELATION_CHANGED"
+	CellTooLarge           Code = "CELL_TOO_LARGE"
+	UnsupportedColumnType  Code = "UNSUPPORTED_COLUMN_TYPE"
 	ExecutionCapacity      Code = "EXECUTION_CAPACITY"
 )
 

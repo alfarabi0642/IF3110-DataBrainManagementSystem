@@ -14,7 +14,9 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/access"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/auth"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/config"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/explorer"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/secret"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/targets"
@@ -102,6 +104,18 @@ func run(logger *slog.Logger) (err error) {
 	if !handler.Register(mux, middleware) {
 		logger.Info("admin connection routes pending admin_databases and admin_database templates")
 	}
+	explorerHandler, err := explorer.NewHandler(explorer.New(provider), db.Pool, authorizer, renderer)
+	if err != nil {
+		logger.Error("explorer page templates unavailable")
+		return err
+	}
+	explorerHandler.Register(mux, middleware)
+	draftHandler, err := migration.NewHandler(migration.NewDraftStore(db.Pool), authorizer, renderer)
+	if err != nil {
+		logger.Error("draft page templates unavailable")
+		return err
+	}
+	draftHandler.Register(mux, middleware)
 	assets, err := httpx.MountStatic(mux, "web/static")
 	if err != nil {
 		logger.Error("unable to open static directory")

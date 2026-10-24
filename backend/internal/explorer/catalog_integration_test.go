@@ -27,6 +27,8 @@ import (
 
 type catalogFixture struct {
 	e         *Explorer
+	pool      *pgxpool.Pool
+	secrets   *secret.Secrets
 	owner     *pgx.Conn
 	writers   []*pgx.Conn
 	targets   []uuid.UUID
@@ -116,7 +118,7 @@ func newCatalogFixture(t *testing.T) catalogFixture {
 	if _, err := pool.Exec(ctx, `INSERT INTO databrain.users(id,username,display_name,password_hash) VALUES ($1,'catalog_fixture','Catalog fixture','fixture-not-an-account-hash')`, actor); err != nil {
 		t.Fatal("cannot create synthetic catalog actor")
 	}
-	f := catalogFixture{e: New(provider), owner: owner, databases: names[1:]}
+	f := catalogFixture{e: New(provider), pool: pool, secrets: secrets, owner: owner, databases: names[1:]}
 	for _, name := range names[1:] {
 		input := targets.CreateInput{Name: name, Host: "127.0.0.1", Port: 55432, DatabaseName: name,
 			Username: "databrain_target", Password: os.Getenv("DATABRAIN_TARGET_PASSWORD"), SSLMode: "disable"}

@@ -81,11 +81,25 @@ func (e *Explorer) Catalog(ctx context.Context, targetID uuid.UUID, schema, tabl
 	if schema != "" && !userSchema(schema) {
 		return Catalog{}, failure(problem.RelationNotFound)
 	}
+	var result Catalog
+	err := e.read(ctx, targetID, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		result, err = readCatalog(ctx, tx, schema, table)
+		return err
+	})
+	if err != nil {
+		return Catalog{}, err
+	}
+	return result, nil
+}
+
+// Both catalog and row reads own one bounded, dedicated read-only transaction.
+func (e *Explorer) read(ctx context.Context, targetID uuid.UUID, query func(context.Context, pgx.Tx) error) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	conn, err := e.provider.OpenExplorer(ctx, targetID)
 	if err != nil {
-		return Catalog{}, err
+		return err
 	}
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -94,25 +108,25 @@ func (e *Explorer) Catalog(ctx context.Context, targetID uuid.UUID, schema, tabl
 	}()
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted, AccessMode: pgx.ReadOnly})
 	if err != nil {
-		return Catalog{}, catalogError(ctx, err)
+		return catalogError(ctx, err)
 	}
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		_ = tx.Rollback(cleanup)
 	}()
-	_, err = tx.Exec(ctx, `SET LOCAL statement_timeout='3s'; SET LOCAL lock_timeout='1s'; SET LOCAL search_path=pg_catalog`)
+	_, err = tx.Exec(ctx, `SET LOCAL statement_timeout='3s'; SET LOCAL lock_timeout='1s'; SET LOCAL search_path=pg_catalog;
+	    SET LOCAL TimeZone='UTC'; SET LOCAL DateStyle='ISO, YMD'; SET LOCAL bytea_output='hex'`)
 	if err != nil {
-		return Catalog{}, catalogError(ctx, err)
+		return catalogError(ctx, err)
 	}
-	result, err := readCatalog(ctx, tx, schema, table)
-	if err != nil {
-		return Catalog{}, catalogError(ctx, err)
+	if err := query(ctx, tx); err != nil {
+		return catalogError(ctx, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Catalog{}, catalogError(ctx, err)
+		return catalogError(ctx, err)
 	}
-	return result, nil
+	return nil
 }
 
 func validName(name string) bool {

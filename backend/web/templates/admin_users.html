@@ -1,0 +1,45 @@
+{{/*
+S-03. Data: Layout, Users (ID, Username, DisplayName, IsActive, IsAdmin, Revision), Pager,
+Form (Username, DisplayName, IsAdmin), and Error. Password is never redisplayed.
+*/}}
+{{define "admin_users"}}{{template "header" .}}
+{{if .Users}}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Username</th><th>Display name</th><th>Status</th><th>Platform admin</th><th>Revision</th></tr></thead>
+  <tbody>
+  {{range .Users}}
+  <tr>
+    <td><a href="/admin/users/{{.ID}}">{{.Username}}</a></td>
+    <td>{{.DisplayName}}</td>
+    <td>{{if .IsActive}}Active{{else}}Inactive{{end}}</td>
+    <td>{{template "yesno" .IsAdmin}}</td>
+    <td>{{.Revision}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{template "pager" .Pager}}
+{{else}}
+<p>No users yet.</p>
+{{end}}
+
+<h2>Create user</h2>
+{{with .Error}}<p class="status failed" role="alert">{{.}}</p>{{end}}
+<form method="post" action="/admin/users">
+  <input type="hidden" name="_csrf" value="{{.CSRF}}">
+  <label for="username">Username</label>
+  <input id="username" name="username" minlength="3" maxlength="32" pattern="[a-z][a-z0-9_]{2,31}" required value="{{.Form.Username}}">
+  <label for="display_name">Display name</label>
+  <input id="display_name" name="display_name" required value="{{.Form.DisplayName}}">
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" autocomplete="new-password" required>
+  <label for="is_platform_admin">Account type</label>
+  <select id="is_platform_admin" name="is_platform_admin" required>
+    <option value="false"{{if not .Form.IsAdmin}} selected{{end}}>Regular user</option>
+    <option value="true"{{if .Form.IsAdmin}} selected{{end}}>Platform admin</option>
+  </select>
+  <button type="submit">Create user</button>
+</form>
+{{template "footer" .}}{{end}}

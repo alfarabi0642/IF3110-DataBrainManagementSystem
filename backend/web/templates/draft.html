@@ -1,6 +1,7 @@
 {{/*
 Data:Layout, Draft (ID, Title, SQL, Revision, UpdatedAt, UpdatedBy), Error (summary),
 Conflict (true after REVISION_CONFLICT; the form then holds the user's unsaved input).
+CanReview (true only after the review route is available).
 The newline after <textarea> is dropped by browsers, so SQL that starts with a newline survives.
 */}}
 {{define "draft"}}{{template "header" .}}
@@ -20,6 +21,6 @@ The newline after <textarea> is dropped by browsers, so SQL that starts with a n
   <button type="submit">Save revision</button>
 </form>
 <p>Saving does not change the database. Review always uses the last saved revision.</p>
-<p><a class="button" href="/databases/{{.Database.ID}}/drafts/{{.Draft.ID}}/review">Review saved revision</a></p>
-<p><a href="/databases/{{.Database.ID}}/drafts">All drafts</a></p>
+<p>{{if .CanReview}}<a class="button" href="/databases/{{.Database.ID}}/drafts/{{.Draft.ID}}/review">Review saved revision</a>{{end}}</p>
+<p></p><a href="/databases/{{.Database.ID}}/drafts">All drafts</a></p>
 {{template "footer" .}}{{end}}

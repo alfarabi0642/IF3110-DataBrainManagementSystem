@@ -116,13 +116,21 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 			return 422, p.Code, "The target connection could not be verified. Check its settings."
 		case problem.TargetUnavailable:
 			return 503, p.Code, "Target unavailable."
+		case problem.RelationNotFound:
+			return 404, p.Code, "Schema or table not available."
+		case problem.RelationChanged:
+			return 409, p.Code, "The table changed or is busy. Open it again."
+		case problem.CellTooLarge:
+			return 422, p.Code, "A cell exceeds the explorer size limit."
+		case problem.UnsupportedColumnType:
+			return 422, p.Code, "A column cannot be displayed as text."
 		case problem.SessionInvalid:
 			return 401, p.Code, "Authentication required."
 		case problem.CSRFInvalid, problem.OriginRejected:
 			return 403, p.Code, "Open a new form and try again."
 		case problem.AdminRequired, problem.DatabaseAccessDenied:
 			return 403, p.Code, "Access denied."
-		case problem.DatabaseNotFound:
+		case problem.DatabaseNotFound, problem.DraftNotFound:
 			return 404, p.Code, "Resource not available."
 		case problem.PlatformUnavailable:
 			return 503, p.Code, "Platform unavailable."

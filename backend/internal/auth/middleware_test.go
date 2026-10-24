@@ -1,12 +1,14 @@
 package auth
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func csrfRequest(origin, token string) *http.Request {
@@ -38,9 +40,12 @@ func TestRequireCSRFGatesOriginAndToken(t *testing.T) {
 		status                         int
 	}{
 		{"missing origin", "", expected, "", http.StatusForbidden},
+		{"null origin", "null", expected, "", http.StatusForbidden},
 		{"foreign origin", "https://evil.example", expected, "", http.StatusForbidden},
 		{"cross site", origin, expected, "cross-site", http.StatusForbidden},
 		{"wrong token", origin, strings.Repeat("B", 43), "", http.StatusForbidden},
+		{"missing token", origin, "", "", http.StatusForbidden},
+		{"duplicate token", origin, expected + "&_csrf=" + expected, "", http.StatusBadRequest},
 		{"valid", origin, expected, "same-origin", http.StatusNoContent},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -57,6 +62,44 @@ func TestRequireCSRFGatesOriginAndToken(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMiddlewarePropagatesUnavailableSessionStore(t *testing.T) {
+	// A closed lazy pool fails without opening any network connection.
+	pool, err := pgxpool.New(context.Background(), "postgres://unused@127.0.0.1:1/unused?sslmode=disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
+	service := unitSessionService(t)
+	service.pool, service.cookieName, service.appOrigin = pool, SessionCookieName, "http://localhost:8080"
+	middleware, err := NewMiddleware(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := newToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("failed session reached mutation") })
+	for _, handler := range []http.Handler{middleware.RequireSession(next), middleware.RequireCSRF(next)} {
+		r := csrfRequest(service.appOrigin, strings.Repeat("A", 43))
+		r.AddCookie(&http.Cookie{Name: SessionCookieName, Value: token})
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != http.StatusServiceUnavailable || w.Header().Get("Set-Cookie") != "" {
+			t.Fatalf("store failure response=%d cookie=%t", w.Code, w.Header().Get("Set-Cookie") != "")
+		}
+	}
+	r := httptest.NewRequest(http.MethodGet, "/login", nil)
+	r.AddCookie(&http.Cookie{Name: SessionCookieName, Value: token})
+	w := httptest.NewRecorder()
+	_, err = middleware.LoginSession(w, r)
+	requireProblem(t, err, problem.PlatformUnavailable)
+	if w.Header().Get("Set-Cookie") != "" {
+		t.Fatal("store failure replaced the login family")
+	}
+	requireProblem(t, service.Cleanup(context.Background()), problem.PlatformUnavailable)
 }
 
 func TestRequireSessionRedirectsMissingCookie(t *testing.T) {

@@ -22,14 +22,35 @@ var (
 	usernamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{2,31}$`)
 )
 
+func ValidateUsername(username string) error {
+	if !usernamePattern.MatchString(username) {
+		return ErrInvalidUsername
+	}
+	return nil
+}
+
+func NormalizeLoginUsername(username string) string {
+	return strings.ToLower(strings.TrimSpace(username))
+}
+
+func NormalizeDisplayName(displayName string) (string, error) {
+	displayName = strings.TrimSpace(displayName)
+	if !utf8.ValidString(displayName) || utf8.RuneCountInString(displayName) < 1 ||
+		utf8.RuneCountInString(displayName) > 80 || strings.ContainsRune(displayName, 0) {
+		return "", ErrInvalidDisplayName
+	}
+	return displayName, nil
+}
+
 // BootstrapAdmin creates the first active platform admin. The password is
 // hashed before the transaction acquires the global security lock.
 func BootstrapAdmin(ctx context.Context, pool *pgxpool.Pool, username, displayName, password string) (uuid.UUID, error) {
-	displayName = strings.TrimSpace(displayName)
-	if !usernamePattern.MatchString(username) {
+	if err := ValidateUsername(username); err != nil {
 		return uuid.Nil, ErrInvalidUsername
 	}
-	if !utf8.ValidString(displayName) || utf8.RuneCountInString(displayName) < 1 || utf8.RuneCountInString(displayName) > 80 {
+	var err error
+	displayName, err = NormalizeDisplayName(displayName)
+	if err != nil {
 		return uuid.Nil, ErrInvalidDisplayName
 	}
 	passwordHash, err := HashPassword(ctx, password)
