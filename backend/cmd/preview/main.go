@@ -13,6 +13,8 @@ import (
 
 const (
 	dbID      = "3f2b8e64-0c1a-4c57-9b0e-5d8f1a2b3c4d"
+	userID    = "65be9f20-372d-4d13-8adc-7eb976fea257"
+	groupID   = "9d151ca8-17d3-48ea-a782-28a2a783be51"
 	draftID   = "7a1d52c0-6b0e-4f0d-8c0b-2f6f9e0a1b11"
 	attemptID = "c2d9a4e8-1f53-4a7b-9e0c-6d3b8f2a4e55"
 	sampleSQL = "CREATE TABLE orders (\n  id bigint PRIMARY KEY,\n  note text\n);\n-- <b>not html</b>\nINSERT INTO orders VALUES (1, 'a;b');"
@@ -32,6 +34,16 @@ func layout(title, active string, db bool, edit bool) map[string]any {
 	if db {
 		data["Database"] = map[string]any{"ID": dbID, "Name": "orders-prod", "CanEdit": edit}
 	}
+	return data
+}
+
+func signedOut(title string) map[string]any {
+	return map[string]any{"Title": title, "CSRF": "preview-csrf-token", "Active": "", "User": nil}
+}
+
+func adminLayout(title, active string) map[string]any {
+	data := layout(title, active, false, false)
+	data["User"] = map[string]any{"DisplayName": "Root Admin", "Username": "root", "IsAdmin": true}
 	return data
 }
 
@@ -79,6 +91,41 @@ func main() {
 	}
 
 	pages := []page{
+		{"/preview/login", "login", with(signedOut("Log in"), map[string]any{"Username": "", "Error": "", "Reauth": false})},
+		{"/preview/login-error", "login", with(signedOut("Log in"), map[string]any{"Username": "ana", "Error": "Invalid username or password.", "Reauth": false})},
+		{"/preview/login-reauth", "login", with(signedOut("Log in"), map[string]any{"Username": "ana", "Error": "", "Reauth": true})},
+		{"/preview/admin-users", "admin_users", with(adminLayout("Users", "users"), map[string]any{
+			"Users": []map[string]any{
+				{"ID": userID, "Username": "ana", "DisplayName": "Ana Editor", "IsActive": true, "IsAdmin": false, "Revision": int64(3)},
+				{"ID": "d59d27a7-8c14-4e89-8cbe-853f65be6f69", "Username": "retired_admin", "DisplayName": "Retired Admin", "IsActive": false, "IsAdmin": true, "Revision": int64(8)},
+			},
+			"Pager": map[string]any{"Prev": "", "Next": ""}, "Form": map[string]any{"Username": "", "DisplayName": "", "IsAdmin": false}, "Error": "",
+		})},
+		{"/preview/admin-user-conflict", "admin_user", with(adminLayout("User", "users"), map[string]any{
+			"UserProfile": map[string]any{"ID": userID, "Username": "ana", "DisplayName": "Ana Editor", "IsActive": true, "IsAdmin": false, "Revision": int64(4)},
+			"Groups":      []map[string]any{{"ID": groupID, "Name": "Migration editors", "IsActive": true, "Revision": int64(2)}},
+			"Form":        map[string]any{"DisplayName": "Ana", "ExpectedRevision": "3", "IsActive": true, "IsAdmin": false}, "Error": "The resource changed.", "Conflict": true,
+		})},
+		{"/preview/admin-groups", "admin_groups", with(adminLayout("Groups", "groups"), map[string]any{
+			"Groups": []map[string]any{{"ID": groupID, "Name": "Migration editors", "IsActive": true, "Revision": int64(2)}},
+			"Pager":  map[string]any{"Prev": "", "Next": ""}, "Form": map[string]any{"Name": ""}, "Error": "",
+		})},
+		{"/preview/admin-group", "admin_group", with(adminLayout("Group", "groups"), map[string]any{
+			"GroupProfile":    map[string]any{"ID": groupID, "Name": "Migration editors", "IsActive": true, "Revision": int64(2)},
+			"Form":            map[string]any{"Name": "Migration editors", "ExpectedRevision": "2", "IsActive": true},
+			"Members":         []map[string]any{{"ID": userID, "Username": "ana", "DisplayName": "Ana Editor", "IsActive": true}},
+			"MemberChoices":   []map[string]any{{"ID": "36e69a7d-dbee-427b-a73e-2eecf518bc9c", "Username": "budi", "DisplayName": "Budi Viewer", "IsActive": true}},
+			"Grants":          []map[string]any{{"DatabaseID": dbID, "DatabaseName": "orders-prod", "Access": "view_edit"}},
+			"DatabaseChoices": []map[string]any{{"ID": dbID, "Name": "orders-prod"}}, "Error": "", "Conflict": false,
+		})},
+		{"/preview/admin-group-inactive", "admin_group", with(adminLayout("Group", "groups"), map[string]any{
+			"GroupProfile":    map[string]any{"ID": groupID, "Name": "Legacy viewers", "IsActive": false, "Revision": int64(7)},
+			"Form":            map[string]any{"Name": "Legacy viewers", "ExpectedRevision": "7", "IsActive": false},
+			"Members":         []map[string]any{{"ID": userID, "Username": "ana", "DisplayName": "Ana Editor", "IsActive": true}},
+			"MemberChoices":   []map[string]any{{"ID": "36e69a7d-dbee-427b-a73e-2eecf518bc9c", "Username": "budi", "DisplayName": "Budi Viewer", "IsActive": true}},
+			"Grants":          []map[string]any{{"DatabaseID": dbID, "DatabaseName": "orders-prod", "Access": "view_only"}},
+			"DatabaseChoices": []map[string]any{{"ID": dbID, "Name": "orders-prod"}}, "Error": "", "Conflict": false,
+		})},
 		{"/preview/databases", "databases", with(layout("Databases", "databases", false, false), map[string]any{
 			"Databases": []map[string]any{
 				{"ID": dbID, "Name": "orders-prod", "Access": "view_edit", "ActiveAttempt": map[string]any{"ID": attemptID, "Version": "42", "State": "running"}},
