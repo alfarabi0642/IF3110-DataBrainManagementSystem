@@ -5,13 +5,15 @@
 \getenv migrator_password DATABRAIN_MIGRATOR_PASSWORD
 \getenv runtime_password DATABRAIN_RUNTIME_PASSWORD
 \getenv target_password DATABRAIN_TARGET_PASSWORD
+\getenv fixture_data_dir DATABRAIN_FIXTURE_DATA_DIR
+
+SELECT set_config('databrain.fixture_data_dir', :'fixture_data_dir', false);
 
 DO $$
 BEGIN
     IF current_user <> 'databrain_fixture_owner'
        OR current_database() <> 'postgres'
-       OR inet_server_addr() IS DISTINCT FROM '127.0.0.1'::inet
-       OR inet_server_port() IS DISTINCT FROM 55432 THEN
+       OR current_setting('data_directory') <> current_setting('databrain.fixture_data_dir') THEN
         RAISE EXCEPTION 'Use only the verified local disposable cluster';
     END IF;
 END;

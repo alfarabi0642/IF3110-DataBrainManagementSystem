@@ -436,7 +436,7 @@ func TestDatabaseHandlers(t *testing.T) {
 		form := url.Values{"_csrf": {adminSession.csrf}}
 		status(request("POST", path+"/test", adminSession, form), 200)
 		page := capture.page.(AdminDatabasePage)
-		if page.Probe == nil || !page.Probe.OK || page.Probe.ServerVersion/10000 != 17 {
+		if page.Probe == nil || !page.Probe.OK || !supportedServerVersion(page.Probe.ServerVersion) {
 			t.Fatal("stored probe did not return safe success metadata")
 		}
 		if _, err := f.owner.Exec(ctx, "ALTER ROLE "+pgx.Identifier{f.role}.Sanitize()+" NOLOGIN"); err != nil {

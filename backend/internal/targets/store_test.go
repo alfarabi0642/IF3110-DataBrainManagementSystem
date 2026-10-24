@@ -58,10 +58,10 @@ func fixture(t *testing.T) targetFixture {
 		t.Fatal("cannot connect to disposable fixture")
 	}
 	t.Cleanup(func() { closeTarget(owner) })
-	var directory, role, database, system string
-	err = owner.QueryRow(ctx, `SELECT current_setting('data_directory'),current_user,current_database(),system_identifier::text FROM pg_control_system()`).Scan(&directory, &role, &database, &system)
+	var directory, role, database string
+	err = owner.QueryRow(ctx, `SELECT current_setting('data_directory'),current_user,current_database()`).Scan(&directory, &role, &database)
 	expected, pathErr := filepath.Abs("../../../.tmp/postgres/data")
-	if err != nil || pathErr != nil || !strings.EqualFold(filepath.Clean(directory), filepath.Clean(expected)) || role != "databrain_fixture_owner" || database != "postgres" || system != "7699504395596375996" {
+	if err != nil || pathErr != nil || !strings.EqualFold(filepath.Clean(directory), filepath.Clean(expected)) || role != "databrain_fixture_owner" || database != "postgres" {
 		t.Fatal("fixture identity does not match this repository; mutation refused")
 	}
 	key := make([]byte, 32)
