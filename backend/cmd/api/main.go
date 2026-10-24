@@ -16,6 +16,7 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/config"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/explorer"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/secret"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/targets"
@@ -109,6 +110,12 @@ func run(logger *slog.Logger) (err error) {
 		return err
 	}
 	explorerHandler.Register(mux, middleware)
+	draftHandler, err := migration.NewHandler(migration.NewDraftStore(db.Pool), authorizer, renderer)
+	if err != nil {
+		logger.Error("draft page templates unavailable")
+		return err
+	}
+	draftHandler.Register(mux, middleware)
 	assets, err := httpx.MountStatic(mux, "web/static")
 	if err != nil {
 		logger.Error("unable to open static directory")
