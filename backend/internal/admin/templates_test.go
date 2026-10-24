@@ -91,6 +91,7 @@ func TestAdminUserTemplates(t *testing.T) {
 		`href="/admin/users/user-1"`, "&lt;i&gt;Ana&lt;/i&gt;", "Inactive", "yes", `rel="next"`,
 		`action="/admin/users"`, `name="username"`, `name="display_name"`, `name="password" type="password"`,
 		`name="is_platform_admin"`, `option value="false" selected`, `name="_csrf" value="csrf-token"`,
+		`maxlength="80"`, `aria-describedby="username-help"`, `class="panel form-panel"`, "Platform user accounts",
 	)
 	rejectAdminContains(t, body, "<i>Ana", "<script>", "create-secret", `name="password" value=`)
 
@@ -107,8 +108,12 @@ func TestAdminUserTemplates(t *testing.T) {
 		`name="expected_revision" value="8"`, `name="expected_revision" value="9"`,
 		`name="is_active"`, `name="is_platform_admin"`, `href="/admin/groups/group-1"`,
 		"&lt;b&gt;Engineering&lt;/b&gt;", "Open the latest version", "The username is permanent.",
+		"signs this user out", "signs this user out of every session", "Groups containing this user",
 	)
-	rejectAdminContains(t, body, "<img", "<b>Engineering", "reset-secret", `name="username"`, `name="password" value=`)
+	rejectAdminContains(t, body, "<img", "<b>Engineering", "reset-secret", `name="username"`, `name="password" value=`, "The resource changed.")
+	if strings.Count(body, `class="status failed"`) != 1 {
+		t.Fatal("user revision conflict rendered duplicate error alerts")
+	}
 }
 
 func TestAdminGroupTemplates(t *testing.T) {
@@ -121,7 +126,7 @@ func TestAdminGroupTemplates(t *testing.T) {
 		Form:   GroupForm{Name: `"><script>x</script>`},
 		Error:  "Check the form fields.",
 	})
-	requireAdminContains(t, body, `href="/admin/groups/group-1"`, "&lt;i&gt;Readers&lt;/i&gt;", "Inactive", `rel="prev"`, `action="/admin/groups"`, `name="name"`)
+	requireAdminContains(t, body, `href="/admin/groups/group-1"`, "&lt;i&gt;Readers&lt;/i&gt;", "Inactive", `rel="prev"`, `action="/admin/groups"`, `name="name"`, `maxlength="64"`, "Access groups")
 	rejectAdminContains(t, body, "<i>Readers", "<script>")
 
 	body = renderAdminTemplate(t, "admin_group", GroupPage{
@@ -140,9 +145,23 @@ func TestAdminGroupTemplates(t *testing.T) {
 		`action="/admin/groups/group-1/databases/db-1/remove"`, `action="/admin/groups/group-1/databases"`,
 		`name="database_id"`, `name="access_level"`, "View and edit", "Open the latest version",
 		"&lt;b&gt;Ana&lt;/b&gt;", "&lt;i&gt;Budi&lt;/i&gt;", "&lt;em&gt;Production&lt;/em&gt;", "&lt;strong&gt;Staging&lt;/strong&gt;",
+		"Current group members", "Current database grants", `class="table-action"`, "signs out its members",
 	)
 	rejectAdminContains(t, body,
 		"<img", "<b>Ana", "<i>Budi", "<em>Production", "<strong>Staging",
 		`type="hidden" name="user_id"`, `type="hidden" name="database_id"`,
 	)
+}
+
+func TestInactiveGroupDoesNotOfferMemberAddition(t *testing.T) {
+	layout := httpx.Layout{Title: "Group", CSRF: "csrf-token"}
+	body := renderAdminTemplate(t, "admin_group", GroupPage{
+		Layout:          layout,
+		GroupProfile:    GroupItem{ID: "group-1", Name: "Disabled", Revision: 2},
+		Form:            GroupForm{Name: "Disabled", ExpectedRevision: "2"},
+		MemberChoices:   []MemberItem{{ID: "user-1", Username: "ana", DisplayName: "Ana", IsActive: true}},
+		DatabaseChoices: []DatabaseChoice{{ID: "db-1", Name: "Production"}},
+	})
+	requireAdminContains(t, body, "No active users can be added while this group is inactive", `name="database_id"`, "only grant removal or a downgrade")
+	rejectAdminContains(t, body, `action="/admin/groups/group-1/members"`, `name="user_id"`)
 }

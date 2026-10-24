@@ -17,11 +17,12 @@ import (
 )
 
 var (
-	ErrUsernameTaken        = errors.New("username already exists")
-	ErrGroupNameTaken       = errors.New("group name already exists")
-	ErrPlatformLimitReached = errors.New("platform account or group limit reached")
-	ErrUserNotFound         = errors.New("user not found")
-	ErrGroupNotFound        = errors.New("group not found")
+	ErrUsernameTaken        = &problem.Error{Code: problem.UsernameTaken}
+	ErrGroupNameTaken       = &problem.Error{Code: problem.GroupNameTaken}
+	ErrPlatformLimitReached = &problem.Error{Code: problem.PlatformLimitReached}
+	ErrUserNotFound         = &problem.Error{Code: problem.UserNotFound}
+	ErrGroupNotFound        = &problem.Error{Code: problem.GroupNotFound}
+	ErrLastAdmin            = &problem.Error{Code: problem.LastAdmin}
 	ErrRevisionConflict     = &problem.Error{Code: problem.RevisionConflict}
 )
 

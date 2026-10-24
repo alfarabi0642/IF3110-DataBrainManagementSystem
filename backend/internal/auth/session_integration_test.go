@@ -186,6 +186,26 @@ func TestAuthorizerDatabaseContract(t *testing.T) {
 	if err != nil || level != access.ViewEdit {
 		t.Fatalf("mixed grant = %q, error=%v", level, err)
 	}
+	_, err = authorizer.RequireDatabase(ctx, state.Principal, targetID, access.Action("unknown"))
+	requireProblem(t, err, problem.DatabaseAccessDenied)
+
+	if _, err := service.pool.Exec(ctx, "UPDATE databrain.groups SET is_active=false WHERE id=$1", editGroup); err != nil {
+		t.Fatal("cannot deactivate edit group")
+	}
+	level, err = authorizer.RequireDatabase(ctx, state.Principal, targetID, access.DatabaseView)
+	if err != nil || level != access.ViewOnly {
+		t.Fatalf("inactive edit group did not fall back to view grant: %q, %v", level, err)
+	}
+	_, err = authorizer.RequireDatabase(ctx, state.Principal, targetID, access.MigrationWrite)
+	requireProblem(t, err, problem.DatabaseAccessDenied)
+	if _, err := service.pool.Exec(ctx, "UPDATE databrain.groups SET is_active=false WHERE id=$1", viewGroup); err != nil {
+		t.Fatal("cannot deactivate view group")
+	}
+	_, err = authorizer.RequireDatabase(ctx, state.Principal, targetID, access.DatabaseView)
+	requireProblem(t, err, problem.DatabaseNotFound)
+	if _, err := service.pool.Exec(ctx, "UPDATE databrain.groups SET is_active=true WHERE id IN ($1,$2)", viewGroup, editGroup); err != nil {
+		t.Fatal("cannot reactivate authorizer groups")
+	}
 
 	if _, err := service.pool.Exec(ctx, "UPDATE databrain.database_targets SET is_active=false WHERE id=$1", targetID); err != nil {
 		t.Fatal("cannot deactivate target")
@@ -194,6 +214,21 @@ func TestAuthorizerDatabaseContract(t *testing.T) {
 	requireProblem(t, err, problem.DatabaseNotFound)
 	if _, err := service.pool.Exec(ctx, "UPDATE databrain.database_targets SET is_active=true WHERE id=$1", targetID); err != nil {
 		t.Fatal("cannot reactivate target")
+	}
+	if _, err := service.pool.Exec(ctx, "UPDATE databrain.users SET is_active=false WHERE id=$1", userID); err != nil {
+		t.Fatal("cannot deactivate authorizer user")
+	}
+	requireProblem(t, authorizer.RequireAdmin(ctx, state.Principal), problem.SessionInvalid)
+	_, err = authorizer.RequireDatabase(ctx, state.Principal, targetID, access.DatabaseView)
+	requireProblem(t, err, problem.SessionInvalid)
+	if _, err := service.pool.Exec(ctx, "UPDATE databrain.users SET is_active=true,security_version=security_version+1 WHERE id=$1", userID); err != nil {
+		t.Fatal("cannot change authorizer security version")
+	}
+	requireProblem(t, authorizer.RequireAdmin(ctx, state.Principal), problem.SessionInvalid)
+	_, err = authorizer.RequireDatabase(ctx, state.Principal, targetID, access.DatabaseView)
+	requireProblem(t, err, problem.SessionInvalid)
+	if _, err := service.pool.Exec(ctx, "UPDATE databrain.users SET security_version=1 WHERE id=$1", userID); err != nil {
+		t.Fatal("cannot restore authorizer security version")
 	}
 	if _, err := service.pool.Exec(ctx, "UPDATE databrain.sessions SET reauth_required=true WHERE id=$1", state.ID); err != nil {
 		t.Fatal("cannot require reauthentication")

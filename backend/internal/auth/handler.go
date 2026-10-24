@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
@@ -22,8 +23,6 @@ type loginSessionProvider interface {
 	LoginSession(http.ResponseWriter, *http.Request) (Session, error)
 }
 
-// Handler exposes individual Brain-owned handlers for Al's composition root.
-// POST /login is intentionally absent until the rate limiter contract is fixed.
 type Handler struct {
 	service       *Service
 	middleware    *Middleware
@@ -39,13 +38,24 @@ func NewHandler(service *Service, renderer *httpx.Renderer) (*Handler, error) {
 	return &Handler{service: service, middleware: middleware, loginSessions: middleware, renderer: renderer}, nil
 }
 
-// LoginPageHandler serves GET /login. Route registration stays in Al's mux.
+// Register installs the complete auth routes.
+func (h *Handler) Register(mux *http.ServeMux) {
+	mux.Handle("GET /login", h.LoginPageHandler())
+	mux.Handle("POST /login", h.LoginHandler())
+	mux.Handle("POST /logout", h.LogoutHandler())
+}
+
+// LoginPageHandler serves GET /login.
 func (h *Handler) LoginPageHandler() http.Handler {
 	return http.HandlerFunc(h.loginPage)
 }
 
+func (h *Handler) LoginHandler() http.Handler {
+	return httpx.LimitBody(httpx.LoginBodyLimit, h.middleware.RequireCSRF(http.HandlerFunc(h.login)))
+}
+
 // LogoutHandler includes the bounded form and AllowReauth CSRF boundary needed
-// by POST /logout. Route registration stays in Al's mux.
+// by POST /logout.
 func (h *Handler) LogoutHandler() http.Handler {
 	return httpx.LimitBody(httpx.LoginBodyLimit, h.middleware.RequireCSRF(http.HandlerFunc(h.logout)))
 }
@@ -68,6 +78,66 @@ func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
 	page := LoginPage{Layout: layout, Reauth: state.Kind == AuthenticatedSession && state.ReauthRequired}
 	if err := h.renderer.Render(w, r, http.StatusOK, "login", page); err != nil {
 		h.renderer.RenderError(w, r, layout, err)
+	}
+}
+
+func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
+	state, ok := SessionFromContext(r.Context())
+	if !ok {
+		h.renderer.RenderError(w, r, httpx.Layout{}, sessionFailure(problem.SessionInvalid))
+		return
+	}
+	username := NormalizeLoginUsername(r.PostForm.Get("username"))
+	page := LoginPage{Layout: httpx.Layout{Title: "Log in", CSRF: state.CSRF}, Username: username,
+		Reauth: state.Kind == AuthenticatedSession && state.ReauthRequired}
+	if err := httpx.ValidateFields(r.PostForm, []string{"_csrf", "username", "password"}, nil); err != nil {
+		_, _, page.Error = httpx.ErrorInfo(err)
+		h.renderLogin(w, r, http.StatusBadRequest, page)
+		return
+	}
+	if state.Kind == AuthenticatedSession && !state.ReauthRequired {
+		_, _, page.Error = httpx.ErrorInfo(ErrAlreadyAuthenticated)
+		h.renderLogin(w, r, http.StatusConflict, page)
+		return
+	}
+	if err := h.service.checkLoginRateLimit(r.Context(), username, r.RemoteAddr); err != nil {
+		var limited *RateLimitError
+		if errors.As(err, &limited) {
+			w.Header().Set("Retry-After", strconv.Itoa(limited.RetryAfter))
+			page.Error = "Too many login attempts. Try again later."
+			h.renderLogin(w, r, http.StatusTooManyRequests, page)
+			return
+		}
+		h.renderer.RenderError(w, r, page.Layout, err)
+		return
+	}
+	newState, token, err := h.service.Login(r.Context(), state, username, r.PostForm.Get("password"))
+	if errors.Is(err, ErrInvalidCredentials) {
+		page.Error = "Invalid username or password."
+		h.renderLogin(w, r, http.StatusUnauthorized, page)
+		return
+	}
+	if err != nil {
+		if problemIs(err, problem.AuthBusy) {
+			page.Error = "Authentication is busy. Try again."
+			h.renderLogin(w, r, http.StatusServiceUnavailable, page)
+			return
+		}
+		if problemIs(err, problem.SessionInvalid) {
+			http.SetCookie(w, h.service.ClearCookie())
+			_ = httpx.SeeOther(w, r, "/login")
+			return
+		}
+		h.renderer.RenderError(w, r, page.Layout, err)
+		return
+	}
+	http.SetCookie(w, h.service.Cookie(token, newState.AbsoluteExpiresAt))
+	_ = httpx.SeeOther(w, r, "/databases")
+}
+
+func (h *Handler) renderLogin(w http.ResponseWriter, r *http.Request, status int, page LoginPage) {
+	if err := h.renderer.Render(w, r, status, "login", page); err != nil {
+		h.renderer.RenderError(w, r, page.Layout, err)
 	}
 }
 

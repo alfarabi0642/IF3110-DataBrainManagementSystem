@@ -13,9 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// The aggregate GroupPage query stays pending until member/grant/choice
-// pagination is fixed; returning a silent subset would misrepresent access.
-
 func (s *Service) Group(ctx context.Context, actor access.Principal, groupID uuid.UUID) (GroupItem, error) {
 	if err := s.authorizer.RequireAdmin(ctx, actor); err != nil {
 		return GroupItem{}, err
@@ -40,6 +37,100 @@ func (s *Service) Group(ctx context.Context, actor access.Principal, groupID uui
 		return GroupItem{}, failure(problem.PlatformUnavailable)
 	}
 	return group, nil
+}
+
+// GroupDetails returns the complete bounded aggregate used by the group page.
+// M1 caps the platform at 1000 users and 100 groups, so detail routes do not
+// silently paginate security relationships that the administrator must see.
+func (s *Service) GroupDetails(ctx context.Context, actor access.Principal, groupID uuid.UUID) (GroupItem, []MemberItem, []MemberItem, []GrantItem, []DatabaseChoice, error) {
+	group, err := s.Group(ctx, actor, groupID)
+	if err != nil {
+		return GroupItem{}, nil, nil, nil, nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	lease, err := platformdb.Acquire(ctx, s.pool)
+	if err != nil {
+		return GroupItem{}, nil, nil, nil, nil, failure(problem.PlatformUnavailable)
+	}
+	defer lease.Release()
+
+	members, err := collectMembers(ctx, lease, `SELECT u.id::text,u.username,u.display_name,u.is_active
+	    FROM databrain.users u JOIN databrain.memberships m ON m.user_id=u.id
+	    WHERE m.group_id=$1 ORDER BY u.username,u.id`, groupID)
+	if err != nil {
+		return GroupItem{}, nil, nil, nil, nil, err
+	}
+	choices, err := collectMembers(ctx, lease, `SELECT u.id::text,u.username,u.display_name,u.is_active
+	    FROM databrain.users u WHERE u.is_active AND NOT EXISTS (
+	      SELECT 1 FROM databrain.memberships m WHERE m.group_id=$1 AND m.user_id=u.id)
+	    ORDER BY u.username,u.id`, groupID)
+	if err != nil {
+		return GroupItem{}, nil, nil, nil, nil, err
+	}
+	grantRows, err := lease.Query(ctx, `SELECT t.id::text,t.name,g.access_level
+	    FROM databrain.database_grants g JOIN databrain.database_targets t ON t.id=g.target_id
+	    WHERE g.group_id=$1 ORDER BY t.name,t.id`, groupID)
+	if err != nil {
+		return GroupItem{}, nil, nil, nil, nil, failure(problem.PlatformUnavailable)
+	}
+	grants := make([]GrantItem, 0)
+	for grantRows.Next() {
+		var grant GrantItem
+		if err := grantRows.Scan(&grant.DatabaseID, &grant.DatabaseName, &grant.Access); err != nil {
+			grantRows.Close()
+			return GroupItem{}, nil, nil, nil, nil, failure(problem.PlatformUnavailable)
+		}
+		grants = append(grants, grant)
+	}
+	if err := grantRows.Err(); err != nil {
+		grantRows.Close()
+		return GroupItem{}, nil, nil, nil, nil, failure(problem.PlatformUnavailable)
+	}
+	grantRows.Close()
+
+	choiceRows, err := lease.Query(ctx, `SELECT id::text,name FROM databrain.database_targets
+	    WHERE is_active ORDER BY name,id`)
+	if err != nil {
+		return GroupItem{}, nil, nil, nil, nil, failure(problem.PlatformUnavailable)
+	}
+	defer choiceRows.Close()
+	databases := make([]DatabaseChoice, 0)
+	for choiceRows.Next() {
+		var choice DatabaseChoice
+		if err := choiceRows.Scan(&choice.ID, &choice.Name); err != nil {
+			return GroupItem{}, nil, nil, nil, nil, failure(problem.PlatformUnavailable)
+		}
+		databases = append(databases, choice)
+	}
+	if choiceRows.Err() != nil {
+		return GroupItem{}, nil, nil, nil, nil, failure(problem.PlatformUnavailable)
+	}
+	return group, members, choices, grants, databases, nil
+}
+
+type rowQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func collectMembers(ctx context.Context, db rowQuerier, query string, args ...any) ([]MemberItem, error) {
+	rows, err := db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, failure(problem.PlatformUnavailable)
+	}
+	defer rows.Close()
+	items := make([]MemberItem, 0)
+	for rows.Next() {
+		var item MemberItem
+		if err := rows.Scan(&item.ID, &item.Username, &item.DisplayName, &item.IsActive); err != nil {
+			return nil, failure(problem.PlatformUnavailable)
+		}
+		items = append(items, item)
+	}
+	if rows.Err() != nil {
+		return nil, failure(problem.PlatformUnavailable)
+	}
+	return items, nil
 }
 
 // EditGroup returns true when changing the group's status also invalidated the

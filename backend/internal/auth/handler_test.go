@@ -84,3 +84,43 @@ func TestAuthHandlerRejectsMissingDependenciesAndAnonymousLogout(t *testing.T) {
 		t.Fatalf("anonymous logout = %d %q %v", w.Code, w.Header().Get("Location"), renderer.err)
 	}
 }
+
+func TestAuthHandlerRegistersCompleteRoutes(t *testing.T) {
+	renderer := &handlerRenderer{}
+	h := &Handler{
+		middleware:    &Middleware{service: &Service{cookieName: SessionCookieName}},
+		loginSessions: loginSessionResult{state: Session{Kind: AnonymousSession, CSRF: "csrf"}},
+		renderer:      renderer,
+	}
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/login", nil))
+	if renderer.name != "login" || renderer.status != http.StatusOK {
+		t.Fatalf("GET /login rendered %q with %d", renderer.name, renderer.status)
+	}
+
+	for _, test := range []struct {
+		method, path, allow string
+	}{
+		{http.MethodGet, "/logout", http.MethodPost},
+	} {
+		w = httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(test.method, test.path, nil))
+		if w.Code != http.StatusMethodNotAllowed || w.Header().Get("Allow") != test.allow {
+			t.Fatalf("%s %s = %d Allow %q", test.method, test.path, w.Code, w.Header().Get("Allow"))
+		}
+	}
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/login", nil))
+	if w.Code == http.StatusMethodNotAllowed {
+		t.Fatal("POST /login was not registered")
+	}
+
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/admin/users", nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("incomplete admin route registered: %d", w.Code)
+	}
+}

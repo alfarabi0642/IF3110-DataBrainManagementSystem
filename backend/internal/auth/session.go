@@ -66,7 +66,7 @@ type Service struct {
 }
 
 var (
-	ErrAlreadyAuthenticated = errors.New("an authenticated session is already active")
+	ErrAlreadyAuthenticated = &problem.Error{Code: problem.AlreadyAuthenticated}
 	ErrReauthRequired       = errors.New("session requires reauthentication")
 )
 
@@ -134,15 +134,6 @@ func (s *Service) create(ctx context.Context, kind SessionKind, userID uuid.UUID
 	if kind != AnonymousSession && (kind != AuthenticatedSession || userID == uuid.Nil || securityVersion < 1) {
 		return Session{}, "", sessionFailure(problem.InvalidRequest)
 	}
-	raw, encoded, err := newToken()
-	if err != nil {
-		return Session{}, "", err
-	}
-	id := uuid.New()
-	sealed, err := s.secrets.SealSession(id, raw)
-	if err != nil {
-		return Session{}, "", sessionFailure(problem.InternalError)
-	}
 	bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	lease, err := platformdb.Acquire(bounded, s.pool)
@@ -155,8 +146,31 @@ func (s *Service) create(ctx context.Context, kind SessionKind, userID uuid.UUID
 		return Session{}, "", sessionFailure(problem.PlatformUnavailable)
 	}
 	defer rollbackAuth(tx)
+	state, encoded, err := s.insertSession(bounded, tx, kind, userID, securityVersion)
+	if err != nil {
+		return Session{}, "", err
+	}
+	if err := tx.Commit(bounded); err != nil {
+		return Session{}, "", sessionFailure(problem.PlatformUnavailable)
+	}
+	return state, encoded, nil
+}
+
+// insertSession creates a family inside the caller's transaction. Login uses
+// it after revoking the anonymous/reauth family so neither state is published
+// unless both changes commit.
+func (s *Service) insertSession(ctx context.Context, tx pgx.Tx, kind SessionKind, userID uuid.UUID, securityVersion int64) (Session, string, error) {
+	raw, encoded, err := newToken()
+	if err != nil {
+		return Session{}, "", err
+	}
+	id := uuid.New()
+	sealed, err := s.secrets.SealSession(id, raw)
+	if err != nil {
+		return Session{}, "", sessionFailure(problem.InternalError)
+	}
 	var now time.Time
-	if err := tx.QueryRow(bounded, "SELECT clock_timestamp()").Scan(&now); err != nil {
+	if err := tx.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&now); err != nil {
 		return Session{}, "", sessionFailure(problem.PlatformUnavailable)
 	}
 	lifetime := anonymousLifetime
@@ -167,17 +181,14 @@ func (s *Service) create(ctx context.Context, kind SessionKind, userID uuid.UUID
 	}
 	expires := now.Add(lifetime)
 	hash := tokenHash(raw)
-	if _, err := tx.Exec(bounded, `INSERT INTO databrain.sessions
+	if _, err := tx.Exec(ctx, `INSERT INTO databrain.sessions
 	    (id,kind,user_id,security_version,current_token_hash,current_token_sealed,
 	     created_at,last_seen_at,last_rotated_at,absolute_expires_at)
 	    VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$7,$8)`, id, kind, dbUser, dbVersion, hash[:], sealed, now, expires); err != nil {
 		return Session{}, "", sessionFailure(problem.PlatformUnavailable)
 	}
-	if _, err := tx.Exec(bounded, `INSERT INTO databrain.session_tokens(token_hash,session_id,valid_until)
+	if _, err := tx.Exec(ctx, `INSERT INTO databrain.session_tokens(token_hash,session_id,valid_until)
 	    VALUES ($1,$2,$3)`, hash[:], id, expires); err != nil {
-		return Session{}, "", sessionFailure(problem.PlatformUnavailable)
-	}
-	if err := tx.Commit(bounded); err != nil {
 		return Session{}, "", sessionFailure(problem.PlatformUnavailable)
 	}
 	state := Session{ID: id, Kind: kind, AbsoluteExpiresAt: expires.UTC(), CSRF: s.csrf(id)}

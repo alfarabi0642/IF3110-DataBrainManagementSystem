@@ -3,8 +3,9 @@ S-02. Data: Layout with no normal User, Username (safe redisplay), Error (generi
 message), and Reauth. Password is deliberately absent from page data.
 */}}
 {{define "login"}}{{template "header" .}}
+<div class="auth-panel panel">
 {{if .Reauth}}
-<p class="status unknown">Please sign in again to continue.</p>
+<p class="status unknown" role="status">Your access changed. Please sign in again to continue safely.</p>
 <form method="post" action="/logout">
   <input type="hidden" name="_csrf" value="{{.CSRF}}">
   <button type="submit" class="quiet">Log out instead</button>
@@ -14,9 +15,11 @@ message), and Reauth. Password is deliberately absent from page data.
 <form method="post" action="/login">
   <input type="hidden" name="_csrf" value="{{.CSRF}}">
   <label for="username">Username</label>
-  <input id="username" name="username" autocomplete="username" required autofocus value="{{.Username}}">
+  <input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32" required{{if not .Error}} autofocus{{end}} value="{{.Username}}">
   <label for="password">Password</label>
-  <input id="password" name="password" type="password" autocomplete="current-password" required>
+  <input id="password" name="password" type="password" autocomplete="current-password" aria-describedby="password-help" required{{if .Error}} autofocus{{end}}>
+  <p id="password-help" class="form-help">Passwords contain 12–128 UTF-8 bytes and are never redisplayed.</p>
   <button type="submit">Log in</button>
 </form>
+</div>
 {{template "footer" .}}{{end}}

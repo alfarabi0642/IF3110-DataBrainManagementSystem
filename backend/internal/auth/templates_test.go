@@ -28,6 +28,7 @@ func TestLoginTemplateKeepsAuthenticationDataSafe(t *testing.T) {
 	for _, want := range []string{
 		`action="/login"`, `name="_csrf" value="csrf-token"`,
 		`name="username"`, `name="password" type="password"`,
+		`maxlength="32"`, `aria-describedby="password-help"`, `class="auth-panel panel"`,
 		`&lt;script&gt;alert`, `&lt;b&gt;Invalid credentials.&lt;/b&gt;`,
 	} {
 		if !strings.Contains(body, want) {
@@ -42,7 +43,22 @@ func TestLoginTemplateKeepsAuthenticationDataSafe(t *testing.T) {
 	if strings.Count(body, `name="_csrf"`) != 1 {
 		t.Fatal("login must render exactly one CSRF field")
 	}
+	if !strings.Contains(body, `name="password" type="password" autocomplete="current-password" aria-describedby="password-help" required autofocus`) ||
+		strings.Contains(body, `name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32" required autofocus`) {
+		t.Fatal("failed login must focus the empty password without changing the username")
+	}
 
+	page.Error = ""
+	w = httptest.NewRecorder()
+	if err := renderer.Render(w, httptest.NewRequest(http.MethodGet, "/login", nil), http.StatusOK, "login", page); err != nil {
+		t.Fatalf("render fresh login: %v", err)
+	}
+	if body = w.Body.String(); !strings.Contains(body, `maxlength="32" required autofocus value=`) ||
+		strings.Contains(body, `aria-describedby="password-help" required autofocus`) {
+		t.Fatal("fresh login must focus the username")
+	}
+
+	page.Error = `<b>Invalid credentials.</b>`
 	page.Reauth = true
 	w = httptest.NewRecorder()
 	if err := renderer.Render(w, httptest.NewRequest(http.MethodGet, "/login", nil), http.StatusOK, "login", page); err != nil {

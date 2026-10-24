@@ -108,6 +108,16 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 			return 422, p.Code, "Check the form fields."
 		case problem.RevisionConflict:
 			return 409, p.Code, "The resource changed. Open the latest version before saving."
+		case problem.AlreadyAuthenticated:
+			return 409, p.Code, "Log out before signing in as another account."
+		case problem.UsernameTaken:
+			return 409, p.Code, "That username is already in use."
+		case problem.GroupNameTaken:
+			return 409, p.Code, "That group name is already in use."
+		case problem.PlatformLimitReached:
+			return 409, p.Code, "The platform account or group limit has been reached."
+		case problem.LastAdmin:
+			return 409, p.Code, "At least one active platform administrator is required."
 		case problem.IdempotencyConflict:
 			return 409, p.Code, "This request key belongs to a different draft or revision."
 		case problem.DraftAlreadyExecuted:
@@ -136,11 +146,14 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 			return 422, p.Code, "A column cannot be displayed as text."
 		case problem.SessionInvalid:
 			return 401, p.Code, "Authentication required."
+		case problem.AuthBusy:
+			return 503, p.Code, "Authentication is busy. Try again."
 		case problem.CSRFInvalid, problem.OriginRejected:
 			return 403, p.Code, "Open a new form and try again."
 		case problem.AdminRequired, problem.DatabaseAccessDenied:
 			return 403, p.Code, "Access denied."
-		case problem.DatabaseNotFound, problem.DraftNotFound, problem.AttemptNotFound:
+		case problem.DatabaseNotFound, problem.DraftNotFound, problem.AttemptNotFound,
+			problem.UserNotFound, problem.GroupNotFound:
 			return 404, p.Code, "Resource not available."
 		case problem.PlatformUnavailable:
 			return 503, p.Code, "Platform unavailable."
