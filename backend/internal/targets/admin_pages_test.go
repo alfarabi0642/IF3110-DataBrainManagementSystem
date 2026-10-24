@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/access"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
 )
 
@@ -34,6 +35,21 @@ func requireText(t *testing.T, body string, present bool, want ...string) {
 			t.Errorf("present=%v for %q in:\n%s", present, s, body)
 		}
 	}
+}
+
+func TestDatabasesPage(t *testing.T) {
+	layout := httpx.Layout{Title: "Databases", Active: "databases", CSRF: "tok", User: &httpx.LayoutUser{Username: "ana"}}
+	page := DatabasesPage{Layout: layout, Pager: Pager{Next: "/databases?limit=50&offset=50"}, Databases: []DatabaseItem{
+		{ID: "a", Name: "<i>edit</i>", Access: access.ViewEdit, ActiveAttempt: &ActiveAttempt{ID: "x", Version: "7", State: "running"}},
+		{ID: "b", Name: "viewer", Access: access.ViewOnly},
+	}}
+	body := renderAdmin(t, "databases", page)
+	requireText(t, body, true, "&lt;i&gt;edit", `href="/databases/a/drafts"`, `href="/databases/b/explorer"`, `href="/databases/b/migrations"`,
+		`href="/databases/a/migrations/x"`, `class="badge running"`, "View and edit", "View only", `rel="next"`)
+	requireText(t, body, false, "<i>edit", `href="/databases/b/drafts"`, `rel="prev"`)
+
+	page.Databases, page.Pager = nil, Pager{}
+	requireText(t, renderAdmin(t, "databases", page), true, "Ask an admin")
 }
 
 func TestAdminDatabasePage(t *testing.T) {
