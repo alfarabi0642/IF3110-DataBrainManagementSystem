@@ -79,6 +79,10 @@ func run(logger *slog.Logger) (err error) {
 			}
 		}
 	}()
+	if _, err := migration.RecoverInterrupted(ctx, db); err != nil {
+		logger.Error("migration startup recovery failed; HTTP not started")
+		return err
+	}
 	mux := httpx.NewRouter(db.Ready)
 	provider, err := targets.NewProvider(db.Pool, secrets, targetSettings)
 	if err != nil {

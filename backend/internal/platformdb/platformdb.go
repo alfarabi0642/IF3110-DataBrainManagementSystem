@@ -34,11 +34,12 @@ var (
 )
 
 type DB struct {
-	Pool *pgxpool.Pool
-	lock *pgx.Conn
-	lost chan struct{}
-	stop context.CancelFunc
-	done chan struct{}
+	Pool   *pgxpool.Pool
+	lock   *pgx.Conn
+	lost   chan struct{}
+	stop   context.CancelFunc
+	done   chan struct{}
+	lockMu sync.Mutex // pgx connections cannot be used concurrently.
 
 	closeOnce sync.Once
 	closing   chan struct{}
@@ -139,6 +140,24 @@ func checkSchema(ctx context.Context, query DBTX) error {
 
 func (db *DB) Lost() <-chan struct{} { return db.lost }
 
+// WithProcessLock runs bounded startup/maintenance work on the connection that
+// holds the process lock. A lost connection aborts its transaction as well as
+// releasing the lock; another server cannot overlap a surviving transaction.
+// The callback must not release the advisory lock or retain this connection.
+func (db *DB) WithProcessLock(ctx context.Context, work func(*pgx.Conn) error) error {
+	db.lockMu.Lock()
+	defer db.lockMu.Unlock()
+	if !db.available() {
+		return ErrLockLost
+	}
+	var held bool
+	if err := db.lock.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype='advisory'
+        AND pid=pg_backend_pid() AND classid=3110 AND objid=1 AND objsubid=2 AND granted)`).Scan(&held); err != nil || !held {
+		return ErrLockLost
+	}
+	return work(db.lock)
+}
+
 func (db *DB) monitor(ctx context.Context) {
 	defer close(db.done)
 	ticker := time.NewTicker(time.Second)
@@ -148,10 +167,12 @@ func (db *DB) monitor(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			db.lockMu.Lock()
 			check, cancel := context.WithTimeout(ctx, 2*time.Second)
 			var held bool
 			err := db.lock.QueryRow(check, `SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype='advisory'
 			    AND pid=pg_backend_pid() AND classid=3110 AND objid=1 AND objsubid=2 AND granted)`).Scan(&held)
+			db.lockMu.Unlock()
 			cancel()
 			if ctx.Err() != nil {
 				return
@@ -202,6 +223,8 @@ func (db *DB) Close(ctx context.Context) error {
 			defer close(db.closed)
 			<-db.done
 			db.Pool.Close()
+			db.lockMu.Lock()
+			defer db.lockMu.Unlock()
 			cleanup, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			_ = db.lock.Close(cleanup)
