@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// UserDatabase contains only data allowed on the user's database list.
+// UserDatabase hanya memuat data yang boleh muncul dalam daftar database user.
 type UserDatabase struct {
 	ID                   uuid.UUID
 	Name                 string
@@ -20,9 +20,9 @@ type UserDatabase struct {
 	ActiveAttemptVersion string
 }
 
-// ListForUser reads current group grants for the validated session's user ID.
-// It does not validate a session or replace the Authorizer for resource actions.
-// The bool reports another page; handlers supply the default limit of 50.
+// ListForUser membaca grant group terkini untuk user session tervalidasi. Query ini tidak menggantikan
+// validasi session atau Authorizer. Nilai bool menandai halaman berikutnya; handler menentukan limit
+// default 50.
 func (p *Provider) ListForUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]UserDatabase, bool, error) {
 	if userID == uuid.Nil || limit < 1 || limit > 200 || offset < 0 || offset > 100000 {
 		return nil, false, failure(problem.InvalidRequest)
@@ -68,8 +68,8 @@ func (p *Provider) ListForUser(ctx context.Context, userID uuid.UUID, limit, off
 	return items, false, nil
 }
 
-// ListAdmin returns active and inactive connection metadata without credentials.
-// A handler must call RequireAdmin before using this query or an admin selector.
+// ListAdmin memuat metadata koneksi aktif/nonaktif tanpa credential. Handler wajib memanggil
+// RequireAdmin sebelum query atau selector admin.
 func (p *Provider) ListAdmin(ctx context.Context, limit, offset int) ([]Target, bool, error) {
 	if limit < 1 || limit > 200 || offset < 0 || offset > 100000 {
 		return nil, false, failure(problem.InvalidRequest)

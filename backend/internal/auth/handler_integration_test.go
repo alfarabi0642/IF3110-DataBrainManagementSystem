@@ -10,6 +10,7 @@ import (
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
+	"github.com/google/uuid"
 )
 
 func TestLoginDatabase(t *testing.T) {
@@ -30,8 +31,8 @@ func TestLoginDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.pool.Exec(ctx, `INSERT INTO databrain.users(username,display_name,password_hash)
-	    VALUES ('login_user','Login User',$1)`, hash); err != nil {
+	if _, err := service.pool.Exec(ctx, `INSERT INTO databrain.users(id,username,display_name,password_hash)
+	    VALUES ($1,'login_user','Login User',$2)`, uuid.New(), hash); err != nil {
 		t.Fatal(err)
 	}
 	w := httptest.NewRecorder()
@@ -72,12 +73,12 @@ func TestLoginDatabase(t *testing.T) {
 func TestLoginRateLimitDatabase(t *testing.T) {
 	service, ctx := sessionFixture(t)
 	for range usernameLimit {
-		if err := service.checkLoginRateLimit(ctx, "limited_user", "192.0.2.20:4321"); err != nil {
+		if err := service.checkLoginRateLimit(ctx, "limited_user", "192.0.2.20:4321", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
 	var limited *RateLimitError
-	if err := service.checkLoginRateLimit(ctx, "limited_user", "192.0.2.20:4321"); !errors.As(err, &limited) || limited.RetryAfter < 1 || limited.RetryAfter > 900 {
+	if err := service.checkLoginRateLimit(ctx, "limited_user", "192.0.2.20:4321", ""); !errors.As(err, &limited) || limited.RetryAfter < 1 || limited.RetryAfter > 900 {
 		t.Fatalf("limit error=%v retry=%+v", err, limited)
 	}
 	var rows, usernameAttempts, clientAttempts int

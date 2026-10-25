@@ -1,4 +1,4 @@
-// Package platformdb owns the runtime platform pool and server process lock.
+// Package platformdb mengelola pool runtime platform dan process lock server.
 package platformdb
 
 import (
@@ -12,10 +12,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// SchemaVersion must match the latest supported internal migration.
+// SchemaVersion harus sesuai dengan migration internal terbaru yang didukung.
 const SchemaVersion int64 = 1
 
-// DBTX is shared by direct feature queries and pgx transactions.
+// DBTX dipakai bersama oleh query langsung dan transaksi pgx.
 type DBTX interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 	Query(context.Context, string, ...any) (pgx.Rows, error)
@@ -39,15 +39,15 @@ type DB struct {
 	lost   chan struct{}
 	stop   context.CancelFunc
 	done   chan struct{}
-	lockMu sync.Mutex // pgx connections cannot be used concurrently.
+	lockMu sync.Mutex // Koneksi pgx tidak boleh dipakai bersamaan.
 
 	closeOnce sync.Once
 	closing   chan struct{}
 	closed    chan struct{}
 }
 
-// Open verifies the schema and runtime privileges before acquiring a dedicated
-// session lock. It never runs migrations or changes attempt state.
+// Open memeriksa schema serta hak runtime sebelum mengambil lock koneksi khusus. Fungsi ini tidak
+// menjalankan migration atau mengubah state attempt.
 func Open(ctx context.Context, databaseURL string) (_ *DB, err error) {
 	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
@@ -115,8 +115,8 @@ func Open(ctx context.Context, databaseURL string) (_ *DB, err error) {
 	return db, nil
 }
 
-// Acquire bounds the wait for a pooled connection; the caller must Release it.
-// Query/transaction deadlines still come from the caller's operation context.
+// Acquire membatasi penantian koneksi pool; pemanggil wajib Release. Batas query/transaksi tetap
+// berasal dari context operasi.
 func Acquire(ctx context.Context, pool *pgxpool.Pool) (*pgxpool.Conn, error) {
 	acquire, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
@@ -140,10 +140,9 @@ func checkSchema(ctx context.Context, query DBTX) error {
 
 func (db *DB) Lost() <-chan struct{} { return db.lost }
 
-// WithProcessLock runs bounded startup/maintenance work on the connection that
-// holds the process lock. A lost connection aborts its transaction as well as
-// releasing the lock; another server cannot overlap a surviving transaction.
-// The callback must not release the advisory lock or retain this connection.
+// WithProcessLock menjalankan startup/maintenance pada koneksi pemegang process lock. Koneksi hilang
+// membatalkan transaksi sekaligus melepas lock agar server baru tidak tumpang tindih dengan transaksi
+// lama. Callback tidak boleh melepas lock atau menyimpan koneksi ini.
 func (db *DB) WithProcessLock(ctx context.Context, work func(*pgx.Conn) error) error {
 	db.lockMu.Lock()
 	defer db.lockMu.Unlock()
@@ -185,8 +184,8 @@ func (db *DB) monitor(ctx context.Context) {
 	}
 }
 
-// Ready checks current connectivity/schema as well as ownership of the process
-// lock. It never reconnects or reacquires a lost process lock.
+// Ready memeriksa konektivitas, schema, dan kepemilikan process lock saat ini. Lock yang hilang tidak
+// diambil ulang.
 func (db *DB) Ready(ctx context.Context) bool {
 	if !db.available() {
 		return false
@@ -212,9 +211,8 @@ func (db *DB) available() bool {
 	}
 }
 
-// Close stops monitoring and releases the dedicated lock and idle pool. Feature
-// callers must close rows/transactions and release borrowed connections. The
-// caller's context bounds shutdown if a consumer fails to release a connection.
+// Close menghentikan monitor dan melepas lock serta pool idle. Pemanggil wajib menutup rows/transaksi
+// dan mengembalikan koneksi. Context membatasi shutdown jika koneksi masih dipinjam.
 func (db *DB) Close(ctx context.Context) error {
 	db.closeOnce.Do(func() {
 		close(db.closing)

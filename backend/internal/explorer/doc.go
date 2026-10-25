@@ -1,3 +1,3 @@
-// Package explorer reads bounded PostgreSQL catalogs and text row pages.
-// Callers must authorize the target before invoking its queries.
+// Package explorer membaca katalog dan halaman baris PostgreSQL dengan batas ukuran. Pemanggil wajib
+// mengotorisasi target sebelum query.
 package explorer

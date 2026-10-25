@@ -73,6 +73,8 @@ func TestErrorInfoRedactsRawMessages(t *testing.T) {
 		status int
 	}{
 		{&problem.Error{Code: problem.InvalidRequest, Message: "SENSITIVE"}, 400},
+		{&problem.Error{Code: problem.RouteNotFound}, 404},
+		{&problem.Error{Code: problem.MethodNotAllowed}, 405},
 		{&problem.Error{Code: problem.CSRFInvalid}, 403},
 		{&problem.Error{Code: problem.SessionInvalid}, 401},
 		{&problem.Error{Code: problem.OriginRejected}, 403},

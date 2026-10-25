@@ -1,6 +1,5 @@
-// Command preview serves the real templates with sample data so pages can be
-// viewed before their handlers exist. Run from backend/: go run ./cmd/preview
-// Delete this directory once real handlers render these pages.
+// Command preview menampilkan template dengan data contoh untuk pemeriksaan UI. Jalankan dari
+// backend/: go run ./cmd/preview.
 package main
 
 import (
@@ -65,13 +64,13 @@ func attempt(state string, extra map[string]any) map[string]any {
 	return with(a, extra)
 }
 
-// admin switches the sample page to an admin user so the admin navigation shows.
+// admin mengaktifkan navigasi admin pada halaman contoh.
 func admin(data, extra map[string]any) map[string]any {
 	data["User"] = map[string]any{"DisplayName": "Root Admin", "Username": "root", "IsAdmin": true}
 	return with(data, extra)
 }
 
-// connection builds the admin_database sample. A nil probe means none was run.
+// connection membuat contoh admin_database. Probe nil berarti belum diuji.
 func connection(probe map[string]any, conflict bool) map[string]any {
 	data := map[string]any{
 		"Target": map[string]any{
@@ -91,7 +90,7 @@ func connection(probe map[string]any, conflict bool) map[string]any {
 	return data
 }
 
-// userProfile builds the admin_user sample. A conflict keeps the user's unsaved input.
+// userProfile menyimpan input pengguna saat contoh mengalami konflik revision.
 func userProfile(conflict bool) map[string]any {
 	form := map[string]any{"DisplayName": "Ana Editor", "IsActive": true, "IsAdmin": false, "ExpectedRevision": "4"}
 	if conflict {
@@ -107,7 +106,7 @@ func userProfile(conflict bool) map[string]any {
 	})
 }
 
-// groupProfile builds the admin_group sample. A conflict keeps the user's unsaved input.
+// groupProfile menyimpan input pengguna saat contoh mengalami konflik revision.
 func groupProfile(conflict bool) map[string]any {
 	form := map[string]any{"Name": "Analysts", "IsActive": true, "ExpectedRevision": "2"}
 	if conflict {
@@ -130,7 +129,7 @@ func groupProfile(conflict bool) map[string]any {
 	})
 }
 
-// samplePages lists every preview page with the data its template reads.
+// samplePages menyediakan data untuk seluruh halaman preview.
 func samplePages() []page {
 	pager := map[string]any{"Prev": "", "Next": "/databases?limit=50&offset=50"}
 	explorer := func(extra map[string]any) map[string]any {

@@ -77,8 +77,8 @@ func (m *Middleware) RequireSession(next http.Handler) http.Handler {
 	})
 }
 
-// RequireCSRF parses the bounded URL-encoded form. Protected POST routes wrap
-// this inside RequireSession; login/logout may use it directly.
+// RequireCSRF membaca form URL-encoded dengan batas ukuran. POST terlindungi membungkusnya dengan
+// RequireSession; login/logout dapat memakainya langsung.
 func (m *Middleware) RequireCSRF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -125,9 +125,8 @@ func (m *Middleware) RequireCSRF(next http.Handler) http.Handler {
 	})
 }
 
-// LoginSession reuses an anonymous or reauth family, or creates a fresh
-// anonymous family for GET /login. A normal authenticated family is reported
-// so the handler can redirect to /databases.
+// LoginSession memakai family anonymous atau reauth yang ada, atau membuat anonymous baru untuk GET
+// /login. Family authenticated biasa diteruskan agar handler dapat mengarahkan ke /databases.
 func (m *Middleware) LoginSession(w http.ResponseWriter, r *http.Request) (Session, error) {
 	if strings.EqualFold(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")), "cross-site") {
 		return Session{}, sessionFailure(problem.OriginRejected)

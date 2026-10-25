@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -43,8 +44,9 @@ const (
 type Clock func() time.Time
 
 type Policy struct {
-	AppEnv    string
-	AppOrigin string
+	AppEnv            string
+	AppOrigin         string
+	TrustedProxyCIDRs string
 }
 
 type Session struct {
@@ -57,12 +59,13 @@ type Session struct {
 }
 
 type Service struct {
-	pool       *pgxpool.Pool
-	secrets    *secret.Secrets
-	clock      Clock
-	appOrigin  string
-	cookieName string
-	secure     bool
+	pool           *pgxpool.Pool
+	secrets        *secret.Secrets
+	clock          Clock
+	appOrigin      string
+	cookieName     string
+	secure         bool
+	trustedProxies []netip.Prefix
 }
 
 var (
@@ -92,11 +95,31 @@ func NewService(pool *pgxpool.Pool, secrets *secret.Secrets, policy Policy, cloc
 	if clock == nil {
 		clock = time.Now
 	}
+	trustedProxies, err := parseTrustedProxies(policy.TrustedProxyCIDRs)
+	if err != nil {
+		return nil, err
+	}
 	name := SessionCookieName
 	if policy.AppEnv == "production" {
 		name = ProductionCookieName
 	}
-	return &Service{pool: pool, secrets: secrets, clock: clock, appOrigin: policy.AppOrigin, cookieName: name, secure: secure}, nil
+	return &Service{pool: pool, secrets: secrets, clock: clock, appOrigin: policy.AppOrigin, cookieName: name, secure: secure, trustedProxies: trustedProxies}, nil
+}
+
+func parseTrustedProxies(raw string) ([]netip.Prefix, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	values := strings.Split(raw, ",")
+	result := make([]netip.Prefix, 0, len(values))
+	for _, value := range values {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(value))
+		if err != nil {
+			return nil, errors.New("auth: invalid trusted proxy prefix")
+		}
+		result = append(result, prefix.Masked())
+	}
+	return result, nil
 }
 
 func sessionFailure(code problem.Code) error { return &problem.Error{Code: code} }
@@ -156,9 +179,8 @@ func (s *Service) create(ctx context.Context, kind SessionKind, userID uuid.UUID
 	return state, encoded, nil
 }
 
-// insertSession creates a family inside the caller's transaction. Login uses
-// it after revoking the anonymous/reauth family so neither state is published
-// unless both changes commit.
+// insertSession membuat family dalam transaksi pemanggil. Login memakainya setelah mencabut family
+// lama; kedua perubahan hanya terlihat setelah commit bersama.
 func (s *Service) insertSession(ctx context.Context, tx pgx.Tx, kind SessionKind, userID uuid.UUID, securityVersion int64) (Session, string, error) {
 	raw, encoded, err := newToken()
 	if err != nil {
@@ -219,8 +241,8 @@ func scanSession(row pgx.Row) (sessionRow, error) {
 }
 
 func loadSession(ctx context.Context, tx pgx.Tx, hash [32]byte) (sessionRow, error) {
-	// The lock query may wait across rotation/expiry. Read token, user and clock
-	// again in a fresh READ COMMITTED snapshot after acquiring the family lock.
+	// Penungguan lock dapat melewati rotasi atau expiry. Baca ulang token, user, dan waktu melalui
+	// snapshot READ COMMITTED baru setelah family terkunci.
 	var id uuid.UUID
 	if err := tx.QueryRow(ctx, `SELECT s.id FROM databrain.session_tokens st
 	    JOIN databrain.sessions s ON s.id=st.session_id WHERE st.token_hash=$1 FOR UPDATE OF s`, hash[:]).Scan(&id); err != nil {
@@ -255,7 +277,7 @@ func (s *Service) sessionState(value sessionRow, allowReauth bool) (Session, err
 	return state, nil
 }
 
-// rotateSession requires the family row lock and never commits its caller's transaction.
+// rotateSession memerlukan lock baris family dan tidak melakukan commit transaksi pemanggil.
 func (s *Service) rotateSession(ctx context.Context, tx pgx.Tx, value sessionRow) (string, error) {
 	raw, encoded, err := newToken()
 	if err != nil {
@@ -285,8 +307,8 @@ func (s *Service) rotateSession(ctx context.Context, tx pgx.Tx, value sessionRow
 	return encoded, nil
 }
 
-// Validate checks a cookie token, serializes rotation on the family row, and
-// returns a replacement token only for rotation or alias repair.
+// Validate memeriksa token cookie dan mengurutkan rotasi lewat lock family. Token pengganti hanya
+// diberikan saat rotasi atau perbaikan alias.
 func (s *Service) Validate(ctx context.Context, encoded string, allowReauth bool) (Session, string, error) {
 	raw, err := decodeToken(encoded)
 	if err != nil {

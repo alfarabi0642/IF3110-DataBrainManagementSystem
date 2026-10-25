@@ -55,8 +55,8 @@ type GrantInput struct {
 
 func validationFailed() error { return &problem.Error{Code: problem.ValidationFailed} }
 
-// These parsers consume PostForm only after RequireCSRF has authenticated the
-// family and verified Origin/token. They do not validate CSRF or authorize.
+// Parser membaca PostForm setelah RequireCSRF memvalidasi family, Origin, dan token. Otorisasi tetap
+// dilakukan terpisah.
 func parseCreateUser(values url.Values) (CreateUserInput, error) {
 	if err := httpx.ValidateFields(values,
 		[]string{"_csrf", "username", "display_name", "password", "is_platform_admin"}, nil); err != nil {

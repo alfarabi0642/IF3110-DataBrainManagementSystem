@@ -9,8 +9,7 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
 )
 
-// Renders explorer.html with the handler's real ExplorerPage, so a renamed field
-// fails here instead of at request time. No database is needed.
+// Render template explorer dengan tipe halaman asli agar perubahan field terdeteksi tanpa database.
 func renderExplorerPage(t *testing.T, page ExplorerPage) string {
 	t.Helper()
 	renderer, err := httpx.LoadTemplates("../../web/templates")
@@ -26,7 +25,7 @@ func renderExplorerPage(t *testing.T, page ExplorerPage) string {
 	if err := renderer.Render(w, httptest.NewRequest(http.MethodGet, "/", nil), 200, "explorer", page); err != nil {
 		t.Fatalf("render explorer: %v", err)
 	}
-	return strings.ReplaceAll(w.Body.String(), "\r", "") // template files may have CRLF endings on Windows
+	return strings.ReplaceAll(w.Body.String(), "\r", "") // Template di Windows dapat memakai CRLF.
 }
 
 func explorerHas(t *testing.T, body string, present bool, parts ...string) {
@@ -39,7 +38,7 @@ func explorerHas(t *testing.T, body string, present bool, parts ...string) {
 }
 
 func TestExplorerPageRender(t *testing.T) {
-	// Schema list, then table list.
+	// Daftar schema, lalu daftar tabel.
 	body := renderExplorerPage(t, ExplorerPage{Schemas: []ObjectLink{{Name: "pub<b>", Href: "/x?schema=pub%3Cb%3E"}}})
 	explorerHas(t, body, true, `href="/x?schema=pub%3Cb%3E"`, "pub&lt;b&gt;")
 	explorerHas(t, body, false, "pub<b>")
@@ -64,7 +63,7 @@ func TestExplorerPageRender(t *testing.T) {
 		t.Error("only the real NULL may use the NULL marker")
 	}
 
-	// Columns tab: the real Column type has a *string default and already-mapped words.
+	// Default kolom berupa *string; nilai tampilan sudah dipetakan.
 	def := "'n/a'::text"
 	body = renderExplorerPage(t, ExplorerPage{Schema: "public", Table: "t", Tab: "columns", Tabs: tabs, ColumnInfo: []Column{
 		{Ordinal: 1, Name: "id", Type: "bigint", Identity: "by default"},

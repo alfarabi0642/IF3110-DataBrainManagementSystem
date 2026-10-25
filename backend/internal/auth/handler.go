@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
@@ -38,14 +39,14 @@ func NewHandler(service *Service, renderer *httpx.Renderer) (*Handler, error) {
 	return &Handler{service: service, middleware: middleware, loginSessions: middleware, renderer: renderer}, nil
 }
 
-// Register installs the complete auth routes.
+// Register memasang seluruh route auth.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /login", h.LoginPageHandler())
 	mux.Handle("POST /login", h.LoginHandler())
 	mux.Handle("POST /logout", h.LogoutHandler())
 }
 
-// LoginPageHandler serves GET /login.
+// LoginPageHandler menangani GET /login.
 func (h *Handler) LoginPageHandler() http.Handler {
 	return http.HandlerFunc(h.loginPage)
 }
@@ -54,8 +55,8 @@ func (h *Handler) LoginHandler() http.Handler {
 	return httpx.LimitBody(httpx.LoginBodyLimit, h.middleware.RequireCSRF(http.HandlerFunc(h.login)))
 }
 
-// LogoutHandler includes the bounded form and AllowReauth CSRF boundary needed
-// by POST /logout.
+// LogoutHandler membatasi ukuran form dan mengizinkan CSRF pada family yang memerlukan
+// reauthentication untuk POST /logout.
 func (h *Handler) LogoutHandler() http.Handler {
 	return httpx.LimitBody(httpx.LoginBodyLimit, h.middleware.RequireCSRF(http.HandlerFunc(h.logout)))
 }
@@ -100,7 +101,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		h.renderLogin(w, r, http.StatusConflict, page)
 		return
 	}
-	if err := h.service.checkLoginRateLimit(r.Context(), username, r.RemoteAddr); err != nil {
+	if err := h.service.checkLoginRateLimit(r.Context(), username, r.RemoteAddr, strings.Join(r.Header.Values("X-Forwarded-For"), ",")); err != nil {
 		var limited *RateLimitError
 		if errors.As(err, &limited) {
 			w.Header().Set("Retry-After", strconv.Itoa(limited.RetryAfter))

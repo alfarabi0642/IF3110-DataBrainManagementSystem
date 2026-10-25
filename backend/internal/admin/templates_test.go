@@ -22,8 +22,7 @@ func renderAdminTemplate(t *testing.T, name string, data any) string {
 		t.Fatalf("render %s: %v", name, err)
 	}
 	body := w.Body.String()
-	// Check each form independently: a valid logout token must not hide a
-	// missing or duplicated token on a mutation elsewhere on the same page.
+	// Periksa setiap form agar token logout yang valid tidak menutupi token mutasi yang hilang atau ganda.
 	for _, form := range regexp.MustCompile(`(?s)<form\b[^>]*>.*?</form>`).FindAllString(body, -1) {
 		if !strings.Contains(form, `method="post"`) || strings.Count(form, `name="_csrf"`) != 1 ||
 			!strings.Contains(form, `name="_csrf" value="csrf-token"`) {

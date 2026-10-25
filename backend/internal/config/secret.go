@@ -6,9 +6,9 @@ import (
 	"os"
 )
 
-// LoadSecretKey reads APP_SECRET_KEY when an auth or target consumer needs it.
-// The value must be canonical padded standard base64 of exactly 32 bytes.
-// There is no default key in any environment, and errors never include its value.
+// LoadSecretKey membaca APP_SECRET_KEY untuk auth dan target. Nilai harus base64 standar kanonis
+// dengan padding dari tepat 32 byte. Tidak ada default di konfigurasi Go; pesan error tidak memuat
+// nilainya.
 func LoadSecretKey() ([]byte, error) {
 	raw := os.Getenv("APP_SECRET_KEY")
 	key, err := base64.StdEncoding.Strict().DecodeString(raw)

@@ -1,30 +1,47 @@
-{{/*
-Shared page frame. Page data embeds httpx.Layout. .Active names the current nav item
-(databases, users, groups, connections, explorer, drafts, history).
-*/}}
+{{/* Kerangka halaman memakai httpx.Layout. Active menentukan navigasi; halaman tamu tidak menampilkan rail akun. Alur inti bekerja tanpa JavaScript. */}}
 {{define "header"}}<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>{{if .Title}}{{.Title}} - {{end}}DataBrain</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/static/fonts/geist.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/instrument-serif.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
 </head>
-<body>
+<body class="{{if .User}}app{{else}}guest{{end}}">
   <a class="skip" href="#main">Skip to content</a>
+  <div class="shell">
   <header class="topbar">
-    <a class="brand" href="/">DataBrain</a>
+    <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"></span><span class="brand-word">Data<em>Brain</em></span></a>
     {{with .User}}
-    <nav aria-label="Main">
+    <nav class="mainnav" aria-label="Main">
+      <span class="nav-label">Workspace</span>
       <a href="/databases"{{if eq $.Active "databases"}} aria-current="page"{{end}}>Databases</a>
       {{if .IsAdmin}}
+      <span class="nav-label">Administration</span>
       <a href="/admin/users"{{if eq $.Active "users"}} aria-current="page"{{end}}>Users</a>
       <a href="/admin/groups"{{if eq $.Active "groups"}} aria-current="page"{{end}}>Groups</a>
       <a href="/admin/databases"{{if eq $.Active "connections"}} aria-current="page"{{end}}>Connections</a>
       {{end}}
     </nav>
+    {{end}}
+    {{with .Database}}
+    <nav class="dbnav" aria-label="Database">
+      <span class="nav-label">Database</span>
+      <strong>{{.Name}}</strong>
+      <a href="/databases/{{.ID}}/explorer"{{if eq $.Active "explorer"}} aria-current="page"{{end}}>Explorer</a>
+      {{if .CanEdit}}<a href="/databases/{{.ID}}/drafts"{{if eq $.Active "drafts"}} aria-current="page"{{end}}>Drafts</a>{{end}}
+      <a href="/databases/{{.ID}}/migrations"{{if eq $.Active "history"}} aria-current="page"{{end}}>History</a>
+    </nav>
+    {{end}}
+    {{with .User}}
     <div class="account">
-      <span>{{.DisplayName}} <span class="muted">{{.Username}}</span></span>
+      <span class="avatar" aria-hidden="true">{{or .DisplayName .Username}}</span>
+      <span class="who">{{.DisplayName}} <span class="muted">{{.Username}}</span></span>
       <form method="post" action="/logout">
         <input type="hidden" name="_csrf" value="{{$.CSRF}}">
         <button type="submit" class="quiet">Log out</button>
@@ -32,20 +49,16 @@ Shared page frame. Page data embeds httpx.Layout. .Active names the current nav 
     </div>
     {{end}}
   </header>
-  {{with .Database}}
-  <nav class="dbnav" aria-label="Database">
-    <strong>{{.Name}}</strong>
-    <a href="/databases/{{.ID}}/explorer"{{if eq $.Active "explorer"}} aria-current="page"{{end}}>Explorer</a>
-    {{if .CanEdit}}<a href="/databases/{{.ID}}/drafts"{{if eq $.Active "drafts"}} aria-current="page"{{end}}>Drafts</a>{{end}}
-    <a href="/databases/{{.ID}}/migrations"{{if eq $.Active "history"}} aria-current="page"{{end}}>History</a>
-  </nav>
-  {{end}}
   <main id="main">
-  <h1>{{.Title}}</h1>
+  <header class="masthead">
+    <p class="eyebrow">{{if .Database}}<span>Database</span><span>{{.Database.Name}}</span>{{else if or (eq .Active "users") (eq .Active "groups") (eq .Active "connections")}}<span>Administration</span>{{else if .User}}<span>Workspace</span>{{else}}<span>DataBrain</span>{{end}}</p>
+    <h1>{{.Title}}</h1>
+  </header>
   {{end}}
 
   {{define "footer"}}
   </main>
+  </div>
 </body>
 </html>
 {{end}}

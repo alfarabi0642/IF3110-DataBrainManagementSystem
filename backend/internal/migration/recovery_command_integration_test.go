@@ -127,7 +127,7 @@ func TestRecoveryStartupAndCommandPostgres(t *testing.T) {
 	if err := f.target.QueryRow(ctx, `SELECT to_regclass('public.startup_must_not_run') IS NULL`).Scan(&absent); err != nil || !absent {
 		t.Fatal("startup or CLI replayed target SQL")
 	}
-	// Inconsistent durable blocking must fail startup before opening HTTP.
+	// State blokir permanen yang tidak konsisten harus menggagalkan startup sebelum HTTP dibuka.
 	runnerSQL(t, owner, `UPDATE databrain.migration_streams SET active_attempt_id=NULL WHERE target_id=$1`, f.b)
 	startup, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

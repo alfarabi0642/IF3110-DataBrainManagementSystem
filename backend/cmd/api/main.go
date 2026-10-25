@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/access"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/admin"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/auth"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/config"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/explorer"
@@ -25,7 +26,7 @@ import (
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	if err := run(logger); err != nil {
-		// Config errors name only the field/rule; network errors stay private.
+		// Pesan konfigurasi hanya menyebut field dan aturan; detail jaringan tetap privat.
 		logger.Error("HTTP server stopped", "code", "HTTP_SERVER_FAILED")
 		os.Exit(1)
 	}
@@ -88,7 +89,9 @@ func run(logger *slog.Logger) (err error) {
 	if err != nil {
 		return err
 	}
-	sessions, err := auth.NewService(db.Pool, secrets, auth.Policy{AppEnv: cfg.AppEnv, AppOrigin: cfg.AppOrigin}, nil)
+	sessions, err := auth.NewService(db.Pool, secrets, auth.Policy{
+		AppEnv: cfg.AppEnv, AppOrigin: cfg.AppOrigin, TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
+	}, nil)
 	if err != nil {
 		return err
 	}
@@ -100,6 +103,25 @@ func run(logger *slog.Logger) (err error) {
 	if err != nil {
 		return err
 	}
+	authHandler, err := auth.NewHandler(sessions, renderer)
+	if err != nil {
+		logger.Error("authentication page templates unavailable")
+		return err
+	}
+	authHandler.Register(mux)
+	mux.Handle("GET /{$}", middleware.RequireSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = httpx.SeeOther(w, r, "/databases")
+	})))
+	adminService, err := admin.NewService(db.Pool, sessions)
+	if err != nil {
+		return err
+	}
+	adminHandler, err := admin.NewHandler(adminService, sessions, renderer)
+	if err != nil {
+		logger.Error("administration page templates unavailable")
+		return err
+	}
+	adminHandler.Register(mux)
 	handler, err := targets.NewHandler(provider, authorizer, renderer)
 	if err != nil {
 		logger.Error("database page templates unavailable")
@@ -136,8 +158,33 @@ func run(logger *slog.Logger) (err error) {
 	if err != nil {
 		return err
 	}
+	cleanupCtx, cancelCleanup := context.WithCancel(ctx)
+	cleanupDone := make(chan struct{})
+	go func() {
+		defer close(cleanupDone)
+		runSessionCleanup(cleanupCtx, time.Minute, sessions.Cleanup, logger)
+	}()
+	defer func() {
+		cancelCleanup()
+		<-cleanupDone
+	}()
 	logger.Info("HTTP server listening; platform ready")
-	return serveHTTP(ctx, newServer(cfg, httpx.Middleware(logger, mux)), listener, db.Lost())
+	return serveHTTP(ctx, newServer(cfg, httpx.Middleware(logger, httpx.ErrorPages(renderer, mux))), listener, db.Lost())
+}
+
+func runSessionCleanup(ctx context.Context, interval time.Duration, cleanup func(context.Context) error, logger *slog.Logger) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := cleanup(ctx); err != nil {
+				logger.Error("session cleanup failed", "code", "SESSION_CLEANUP_FAILED")
+			}
+		}
+	}
 }
 
 func newServer(cfg config.Config, handler http.Handler) *http.Server {
@@ -152,8 +199,8 @@ func newServer(cfg config.Config, handler http.Handler) *http.Server {
 }
 
 func serveHTTP(ctx context.Context, server *http.Server, listener net.Listener, lockLost <-chan struct{}) error {
-	// Signal cancellation starts draining; active requests retain their context
-	// until they finish or the shutdown deadline forces connections closed.
+	// Penghentian server menunggu request aktif selesai. Context request tetap hidup sampai selesai atau
+	// batas shutdown menutup koneksi.
 	requests, cancelRequests := context.WithCancel(context.Background())
 	defer cancelRequests()
 	server.BaseContext = func(net.Listener) context.Context { return requests }
@@ -170,7 +217,7 @@ func serveHTTP(ctx context.Context, server *http.Server, listener net.Listener, 
 		<-stopped
 		return platformdb.ErrLockLost
 	case <-ctx.Done():
-		// Lock loss remains fatal while an ordinary shutdown is draining.
+		// Hilangnya process lock tetap fatal selama server menunggu request selesai.
 		watchDone := make(chan struct{})
 		defer close(watchDone)
 		go func() {

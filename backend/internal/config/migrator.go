@@ -7,13 +7,18 @@ import (
 	"strings"
 )
 
-// LoadMigratorDatabaseURL is only used by manage, never by the HTTP server.
+// LoadMigratorDatabaseURL hanya dipakai oleh manage, bukan server HTTP.
 func LoadMigratorDatabaseURL() (string, error) {
 	appEnv, ok := os.LookupEnv("APP_ENV")
 	if !ok {
 		appEnv = "development"
 	}
-	return migratorDatabaseURL(os.Getenv("MIGRATOR_DATABASE_URL"), appEnv)
+	raw, err := migratorDatabaseURL(os.Getenv("MIGRATOR_DATABASE_URL"), appEnv)
+	if err != nil {
+		return "", err
+	}
+	u, _ := url.Parse(raw)
+	return databasePassword(u, raw, "MIGRATOR_DATABASE_PASSWORD"), nil
 }
 
 func migratorDatabaseURL(raw, appEnv string) (string, error) {
@@ -42,8 +47,8 @@ func migratorDatabaseURL(raw, appEnv string) (string, error) {
 	default:
 		return "", errors.New("APP_ENV must be development, test, or production")
 	}
-	// Bound connection, metadata, advisory lock and DDL waits on the same
-	// dedicated connection. Multi-statement migrations run as one unit.
+	// Batasi koneksi serta penantian metadata, advisory lock, dan DDL pada koneksi khusus yang sama.
+	// Migration multi-statement berjalan sebagai satu kesatuan.
 	query.Set("connect_timeout", "5")
 	query.Set("statement_timeout", "10000")
 	query.Set("lock_timeout", "3000")

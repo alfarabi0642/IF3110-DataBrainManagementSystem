@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// AttemptSummary contains immutable display snapshots, without the SQL body or
-// request key. Version is decimal text so even large bigint values stay exact.
+// AttemptSummary berisi snapshot tetap tanpa SQL atau request key. Version berupa teks desimal agar
+// bigint tidak kehilangan presisi.
 type AttemptSummary struct {
 	ID, TargetID, DraftID, ActorID                   uuid.UUID
 	DraftRevision                                    int64
@@ -21,8 +21,8 @@ type AttemptSummary struct {
 	StartedAt, FinishedAt                            *time.Time
 }
 
-// AttemptDetail is safe for a history reader. Operator identity, reason and
-// evidence text are deliberately absent; ResolutionSummary is a fixed message.
+// AttemptDetail aman untuk pembaca history. Identitas operator, alasan, dan bukti privat tidak
+// disertakan; ResolutionSummary memakai pesan tetap.
 type AttemptDetail struct {
 	AttemptSummary
 	TargetConfigRevision                        int64
@@ -53,9 +53,9 @@ func utcOptionalTimes(values ...*time.Time) {
 	}
 }
 
-// List reads one target's history in numeric version DESC order, with limit+1
-// lookahead. Callers supply defaults and authorize DatabaseView before reading.
-// Like Receipt and Get, it only reads the platform and never opens a target.
+// List membaca history satu target dengan urutan version numerik menurun dan limit+1. Pemanggil
+// menentukan default dan mengotorisasi DatabaseView. Pembacaan hanya memakai platform, tanpa koneksi
+// target.
 func (s *AttemptStore) List(ctx context.Context, targetID uuid.UUID, limit, offset int) ([]AttemptSummary, bool, error) {
 	if targetID == uuid.Nil || limit < 1 || limit > 200 || offset < 0 || offset > 100000 {
 		return nil, false, attemptFailure(problem.InvalidRequest)
@@ -91,9 +91,8 @@ func (s *AttemptStore) List(ctx context.Context, targetID uuid.UUID, limit, offs
 	return items, false, nil
 }
 
-// Get returns nil for an absent or cross-target attempt. All display values
-// come from the attempt, never the current draft/profile/connection metadata.
-// The caller must authorize DatabaseView on targetID before this lookup.
+// Get mengembalikan nil untuk attempt hilang atau milik target lain. Data berasal dari snapshot
+// attempt, bukan metadata terkini. Pemanggil wajib mengotorisasi DatabaseView pada targetID.
 func (s *AttemptStore) Get(ctx context.Context, targetID, attemptID uuid.UUID) (*AttemptDetail, error) {
 	if targetID == uuid.Nil || attemptID == uuid.Nil {
 		return nil, attemptFailure(problem.InvalidRequest)
@@ -110,8 +109,8 @@ func (s *AttemptStore) Get(ctx context.Context, targetID, attemptID uuid.UUID) (
 	var evidence string
 	dest := append(summaryDestinations(&a.AttemptSummary), &a.TargetConfigRevision, &a.SQL, &a.SQLHash,
 		&a.CommitStartedAt, &a.FirstUnknownAt, &a.ResolvedAt, &failure.Code, &failure.SQLState, &failure.StatementIndex, &evidence)
-	// Do not select failure_message or private operator fields. Public failure
-	// messages are reconstructed from the code rather than echoing stored text.
+	// Jangan membaca failure_message atau field operator privat. Pesan publik dibangun dari kode, tanpa
+	// menampilkan teks tersimpan.
 	err = lease.QueryRow(ctx, `SELECT `+historyColumns+`,target_config_revision,sql_snapshot,encode(sql_sha256,'hex'),
         commit_started_at,first_unknown_at,resolved_at,COALESCE(failure_code,''),
         COALESCE(failure_sqlstate,''),COALESCE(failure_statement_index,0),COALESCE(outcome_evidence,'')

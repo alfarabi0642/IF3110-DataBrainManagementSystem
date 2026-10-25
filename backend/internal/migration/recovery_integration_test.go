@@ -119,8 +119,8 @@ func TestRecoveryPostgres(t *testing.T) {
 		}
 		_, err = s.Reserve(ctx, f.b, dbDraft.ID, f.actor, ReserveInput{1, uuid.New()})
 		requireDraftCode(t, err, problem.DraftAlreadyExecuted)
-		// A failed revision permits a deliberate new key only; resolution itself
-		// did not reserve or execute another attempt.
+		// Revision gagal hanya boleh memakai key baru secara sengaja. Resolusi tidak membuat reservasi atau
+		// menjalankan attempt baru.
 		r, err := s.Reserve(ctx, f.a, d.ID, f.actor, ReserveInput{1, uuid.New()})
 		if err != nil || !r.Created() || r.Receipt.Version != "3" {
 			t.Fatal("explicit new reservation after confirmed rollback failed")
@@ -158,8 +158,8 @@ func TestRecoveryCommitBoundariesPostgres(t *testing.T) {
 		t.Fatal("cannot claim commit-boundary fixture")
 	}
 	r.Receipt.State = "running"
-	// Drop a real server's COMMIT response at the same boundary used by Runner.
-	// No new production hooks/provider abstractions are required for this fault.
+	// Buang response COMMIT server asli pada batas yang sama dengan Runner. Simulasi gangguan ini tidak
+	// memerlukan hook production baru.
 	tracer := &lostCommitAckTracer{}
 	cfg := f.target.Config().Copy()
 	cfg.User, cfg.Password = "databrain_target", os.Getenv("DATABRAIN_TARGET_PASSWORD")
@@ -221,7 +221,7 @@ func TestRecoveryCommitBoundariesPostgres(t *testing.T) {
 		if ok, err := f.runner.store.Claim(ctx, r); err != nil || !ok {
 			t.Fatal("cannot claim outcome fixture")
 		}
-		runnerSQL(t, f.target, d.SQL) // Actual target effect before outcome persistence.
+		runnerSQL(t, f.target, d.SQL) // Perubahan target nyata sebelum hasil disimpan.
 		r.Receipt.State = "running"
 		pcfg := f.store.pool.Config()
 		pcfg.ConnConfig.DialFunc, pcfg.ConnConfig.Tracer = cfg.DialFunc, tracer

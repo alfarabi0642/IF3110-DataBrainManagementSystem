@@ -45,7 +45,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprint(stderr, usage)
 	if len(args) != 0 {
-		// Do not echo arbitrary arguments: later commands may handle secrets.
+		// Jangan mencetak argumen mentah karena dapat berisi rahasia.
 		fmt.Fprintln(stderr, "Unknown command.")
 	}
 	return 2

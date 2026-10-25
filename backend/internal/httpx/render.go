@@ -22,13 +22,13 @@ type Renderer struct {
 	templates *template.Template
 }
 
-// HasTemplate lets route wiring wait for a page's real UI dependency.
+// HasTemplate memeriksa ketersediaan template sebelum route dipasang.
 func (renderer *Renderer) HasTemplate(name string) bool {
 	return renderer != nil && renderer.templates != nil && renderer.templates.Lookup(name) != nil
 }
 
-// LoadTemplates permits an absent UI directory. An existing directory must
-// contain valid .html templates; startup must stop on any load/parse error.
+// LoadTemplates menerima direktori UI yang belum ada. Jika ada, seluruh template .html harus valid;
+// error baca/parse menghentikan startup.
 func LoadTemplates(dir string) (*Renderer, error) {
 	info, err := os.Stat(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -70,9 +70,8 @@ func (b *renderBuffer) Write(p []byte) (int, error) {
 	return b.buffer.Write(p)
 }
 
-// Render writes nothing until execution and the escaped response size succeed.
-// Form error data must contain only explicitly selected SafeFormValues, never
-// the request or the original form. Each feature defines its own page struct.
+// Render baru menulis response setelah template dan batas ukuran HTML lolos. Data error form hanya
+// boleh memakai SafeFormValues terpilih, tanpa request atau form asli.
 func (renderer *Renderer) Render(w http.ResponseWriter, r *http.Request, status int, name string, data any) error {
 	if renderer == nil || renderer.templates == nil || status < 200 || status > 599 {
 		return &problem.Error{Code: problem.InternalError}
@@ -91,15 +90,18 @@ func (renderer *Renderer) Render(w http.ResponseWriter, r *http.Request, status 
 	return err
 }
 
-// ErrorInfo maps known codes to fixed public messages. Even a typed error's
-// Message is not echoed; raw/wrapped errors and unknown codes become 500.
-// Add feature-specific codes here when their handlers are implemented.
+// ErrorInfo memetakan kode ke pesan publik tetap. Message dari error tidak ditampilkan; error mentah,
+// terbungkus, atau kode asing menjadi 500.
 func ErrorInfo(err error) (int, problem.Code, string) {
 	var p *problem.Error
 	if errors.As(err, &p) && p != nil {
 		switch p.Code {
 		case problem.InvalidRequest:
 			return 400, p.Code, "Invalid form or query."
+		case problem.RouteNotFound:
+			return 404, p.Code, "Page not found."
+		case problem.MethodNotAllowed:
+			return 405, p.Code, "Method not allowed."
 		case problem.BodyTooLarge, problem.ResultTooLarge:
 			return 413, p.Code, "The request or result is too large."
 		case problem.UnsupportedMediaType:
@@ -167,23 +169,22 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 	return 500, problem.InternalError, "Internal server error."
 }
 
-// LayoutUser is the signed-in identity shown by the shared page header.
+// LayoutUser berisi identitas login untuk header bersama.
 type LayoutUser struct {
 	DisplayName string
 	Username    string
 	IsAdmin     bool
 }
 
-// LayoutDatabase is the database a page belongs to. CanEdit shows the Drafts link.
+// LayoutDatabase berisi database halaman; CanEdit menentukan tampilan link Drafts.
 type LayoutDatabase struct {
 	ID      string
 	Name    string
 	CanEdit bool
 }
 
-// Layout holds the fields web/templates/layout.html needs. Page structs embed
-// it. User is nil on signed-out pages, which hides navigation and logout.
-// Database is nil outside a database's pages. Active names the current nav item.
+// Layout disisipkan pada data halaman. User nil menyembunyikan navigasi login/logout; Database nil
+// dipakai di luar halaman database. Active memilih item navigasi aktif.
 type Layout struct {
 	Title    string
 	CSRF     string
@@ -197,8 +198,8 @@ type errorPage struct {
 	Message, Code, RequestID string
 }
 
-// RenderError renders the "error" page with the fixed public message from
-// ErrorInfo. If rendering fails it falls back to the plain-text WriteError.
+// RenderError menampilkan pesan tetap dari ErrorInfo. Jika render gagal, gunakan WriteError teks
+// biasa.
 func (renderer *Renderer) RenderError(w http.ResponseWriter, r *http.Request, layout Layout, err error) {
 	status, code, message := ErrorInfo(err)
 	layout.Title = "Error"
@@ -208,8 +209,7 @@ func (renderer *Renderer) RenderError(w http.ResponseWriter, r *http.Request, la
 	}
 }
 
-// WriteError is a plain-text error response for code that runs before a
-// renderer or session exists. It never renders raw error text.
+// WriteError dipakai sebelum renderer atau session tersedia dan tidak menampilkan error mentah.
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	var p *problem.Error
 	if errors.As(err, &p) && p != nil && p.Code == problem.SessionInvalid {
@@ -229,8 +229,8 @@ func pageHeaders(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// SeeOther accepts only a server-built internal path with an optional encoded
-// query. Never pass a client-supplied return URL or include secrets in it.
+// SeeOther hanya menerima path internal buatan server dengan query ter-encode. Jangan memakai return
+// URL dari client atau memasukkan rahasia.
 func SeeOther(w http.ResponseWriter, r *http.Request, location string) error {
 	u, err := url.Parse(location)
 	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil ||

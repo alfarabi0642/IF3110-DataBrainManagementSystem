@@ -198,3 +198,30 @@ func TestServerGracefulShutdown(t *testing.T) {
 		t.Fatal("listener still accepts connections after shutdown")
 	}
 }
+
+func TestSessionCleanupStopsWithContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	called := make(chan struct{}, 1)
+	go func() {
+		defer close(done)
+		runSessionCleanup(ctx, time.Millisecond, func(context.Context) error {
+			select {
+			case called <- struct{}{}:
+			default:
+			}
+			return nil
+		}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}()
+	select {
+	case <-called:
+	case <-time.After(time.Second):
+		t.Fatal("session cleanup did not run")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("session cleanup did not stop")
+	}
+}

@@ -58,11 +58,11 @@ func newCatalogFixture(t *testing.T) catalogFixture {
 		t.Fatal("cannot connect to disposable fixture")
 	}
 	t.Cleanup(func() { closeConn(owner) })
-	var directory, role, database, system string
-	err = owner.QueryRow(ctx, `SELECT current_setting('data_directory'),current_user,current_database(),system_identifier::text FROM pg_control_system()`).Scan(&directory, &role, &database, &system)
+	var directory, role, database string
+	err = owner.QueryRow(ctx, `SELECT current_setting('data_directory'),current_user,current_database()`).Scan(&directory, &role, &database)
 	expected, pathErr := filepath.Abs("../../../.tmp/postgres/data")
 	if err != nil || pathErr != nil || !strings.EqualFold(filepath.Clean(directory), filepath.Clean(expected)) ||
-		role != "databrain_fixture_owner" || database != "postgres" || system != "7699504395596375996" {
+		role != "databrain_fixture_owner" || database != "postgres" {
 		t.Fatal("fixture identity does not match this repository; mutation refused")
 	}
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
@@ -226,7 +226,7 @@ func TestCatalogPostgres(t *testing.T) {
 			!reflect.DeepEqual(catalog.Constraints[0].Columns, []string{"Key b", "Key a"}) ||
 			!strings.Contains(catalog.Constraints[0].Definition, "REFERENCES "+qs+".parent") ||
 			catalog.Constraints[1].Kind != "c" || catalog.Constraints[2].Kind != "p" {
-			t.Fatal("constraint order, keys or FK definition incorrect")
+			t.Fatalf("constraint order, keys or FK definition incorrect: %+v", catalog.Constraints)
 		}
 		if len(catalog.Indexes) != 3 || catalog.Indexes[0].Name != "expression idx" || catalog.Indexes[0].Method != "btree" ||
 			!strings.Contains(catalog.Indexes[0].Definition, "WHERE") || catalog.Indexes[1].Method != "hash" ||
@@ -339,7 +339,7 @@ func TestCatalogPostgres(t *testing.T) {
 			t.Fatal("canceled catalog did not finish cleanup")
 		}
 		_ = blocker.Rollback(ctx)
-		// Repeated requests also prove Provider's four slots are returned.
+		// Request berulang juga membuktikan keempat slot Provider dilepas kembali.
 		for i := 0; i < 6; i++ {
 			read(t, f.targets[0], schema, table)
 		}

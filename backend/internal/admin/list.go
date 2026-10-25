@@ -9,8 +9,8 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
 )
 
-// ListUsers returns safe metadata for active and inactive accounts. The bool
-// reports another page; the HTTP caller supplies the default limit of 50.
+// ListUsers memuat metadata aman akun aktif dan nonaktif. Nilai bool menandakan halaman berikutnya;
+// handler menentukan limit default 50.
 func (s *Service) ListUsers(ctx context.Context, actor access.Principal, limit, offset int) ([]UserItem, bool, error) {
 	if err := s.authorizer.RequireAdmin(ctx, actor); err != nil {
 		return nil, false, err

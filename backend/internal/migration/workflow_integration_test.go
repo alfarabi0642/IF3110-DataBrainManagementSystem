@@ -222,7 +222,7 @@ func TestWorkflowPostgres(t *testing.T) {
 		web.request(t, "GET", history+"/not-uuid", web.viewer, nil, 400)
 	})
 	t.Run("unreadable receipt after claim preserves original recovery URLs", func(t *testing.T) {
-		// A narrowly scoped real platform failure after durable claim, before SQL.
+		// Gangguan platform nyata dibatasi setelah claim permanen dan sebelum SQL target.
 		runnerSQL(t, f.schema, `CREATE FUNCTION databrain.workflow_lose_read() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN REVOKE SELECT ON databrain.migration_attempts FROM databrain_runtime; RETURN NEW; END $$; CREATE TRIGGER workflow_lose_read AFTER UPDATE ON databrain.migration_attempts FOR EACH ROW WHEN (NEW.state='running') EXECUTE FUNCTION databrain.workflow_lose_read()`)
 		d := attemptDraft(t, f.draftFixture, f.a, `CREATE TABLE public.workflow_must_not_start(id int)`)
 		in := ReserveInput{1, uuid.New()}

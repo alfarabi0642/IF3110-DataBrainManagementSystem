@@ -93,3 +93,11 @@ func TestSafeProbeReasons(t *testing.T) {
 		t.Fatal("cancellation did not return a safe timeout reason")
 	}
 }
+
+func TestSupportedServerVersion(t *testing.T) {
+	for version, want := range map[int]bool{160012: false, 170011: true, 180006: true, 190000: false} {
+		if got := supportedServerVersion(version); got != want {
+			t.Fatalf("supportedServerVersion(%d)=%v want %v", version, got, want)
+		}
+	}
+}

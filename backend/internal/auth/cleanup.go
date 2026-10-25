@@ -10,9 +10,8 @@ import (
 
 const cleanupBatchSize = 100
 
-// Cleanup performs one bounded pass. The composition root should call it once
-// per minute, cancel it on shutdown and report failures. Each delete commits
-// separately, so an error can follow partial cleanup; repeating a pass is safe.
+// Cleanup menjalankan satu putaran dengan batas waktu, dipanggil tiap menit dan dibatalkan saat
+// shutdown. Setiap delete memakai commit terpisah; pengulangan aman jika sebagian cleanup gagal.
 func (s *Service) Cleanup(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

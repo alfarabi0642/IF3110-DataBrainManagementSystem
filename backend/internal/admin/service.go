@@ -56,8 +56,8 @@ func rollback(tx pgx.Tx) {
 	_ = tx.Rollback(ctx)
 }
 
-// CreateUser hashes outside the transaction, then rechecks the actor under
-// locks. No existing user's privileges or sessions change when an account is created.
+// CreateUser menghitung hash sebelum transaksi, lalu memeriksa ulang actor di bawah lock. Pembuatan
+// akun tidak mengubah privilege atau session user lain.
 func (s *Service) CreateUser(ctx context.Context, actor access.Principal, in CreateUserInput) (uuid.UUID, error) {
 	if err := s.authorizer.RequireAdmin(ctx, actor); err != nil {
 		return uuid.Nil, err

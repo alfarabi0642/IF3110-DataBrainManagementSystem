@@ -32,9 +32,8 @@ func LimitBody(limit int64, next http.Handler) http.Handler {
 	})
 }
 
-// Middleware generates its own ID and logs only server route patterns and
-// bounded metadata. URLs, query strings, headers, bodies and panic values are
-// intentionally excluded. Apply per-route LimitBody before auth parses a form.
+// Middleware membuat ID sendiri dan hanya mencatat pola route serta metadata terbatas. URL, query,
+// header, body, dan nilai panic tidak dicatat. Pasang LimitBody sebelum auth membaca form.
 func Middleware(logger *slog.Logger, next http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()

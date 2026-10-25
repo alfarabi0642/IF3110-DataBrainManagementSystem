@@ -9,8 +9,7 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
 )
 
-// Every sample page must render with its real template, so the preview does not
-// break silently when a template or its data changes.
+// Render setiap contoh dengan template asli agar perubahan field terdeteksi.
 func TestSamplePagesRender(t *testing.T) {
 	renderer, err := httpx.LoadTemplates("../../web/templates")
 	if err != nil || renderer == nil {

@@ -1,23 +1,24 @@
--- Run once as databrain_fixture_owner in the new local disposable cluster.
--- Existing roles/databases cause an error; this script never resets them.
+-- Jalankan sekali sebagai databrain_fixture_owner pada cluster disposable baru. Role/database yang sudah ada menyebabkan error; script tidak mereset data.
 \set ON_ERROR_STOP on
 \set ECHO none
 \getenv migrator_password DATABRAIN_MIGRATOR_PASSWORD
 \getenv runtime_password DATABRAIN_RUNTIME_PASSWORD
 \getenv target_password DATABRAIN_TARGET_PASSWORD
+\getenv fixture_data_dir DATABRAIN_FIXTURE_DATA_DIR
+
+SELECT set_config('databrain.fixture_data_dir', :'fixture_data_dir', false);
 
 DO $$
 BEGIN
     IF current_user <> 'databrain_fixture_owner'
        OR current_database() <> 'postgres'
-       OR inet_server_addr() IS DISTINCT FROM '127.0.0.1'::inet
-       OR inet_server_port() IS DISTINCT FROM 55432 THEN
+       OR current_setting('data_directory') <> current_setting('databrain.fixture_data_dir') THEN
         RAISE EXCEPTION 'Use only the verified local disposable cluster';
     END IF;
 END;
 $$;
 
--- Do not record SQL containing credentials, including statements that fail.
+-- Jangan mencatat SQL berisi credential, termasuk statement gagal.
 SET log_statement = 'none';
 SET log_min_error_statement = 'panic';
 SET password_encryption = 'scram-sha-256';
@@ -44,6 +45,4 @@ REVOKE ALL ON SCHEMA public FROM PUBLIC;
 \connect inventory_demo
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 
--- The database owners can create their schemas/objects. Runtime receives only
--- CONNECT here; grants on databrain objects belong to the application migration.
--- No memberships, application accounts, application tables or demo data are seeded.
+-- Owner dapat membuat objek. Runtime hanya mendapat CONNECT; hak objek databrain diberikan migration aplikasi. Tidak ada membership, akun, tabel aplikasi, atau data demo yang dibuat di sini.

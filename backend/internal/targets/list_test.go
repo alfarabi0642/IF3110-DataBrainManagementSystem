@@ -27,7 +27,7 @@ func TestListInputValidation(t *testing.T) {
 }
 
 func TestDatabaseLists(t *testing.T) {
-	f := fixture(t) // Existing fixture verifies identity before creating unique DBs.
+	f := fixture(t) // Fixture memeriksa identitas sebelum membuat database unik.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	p := f.p
@@ -43,8 +43,8 @@ func TestDatabaseLists(t *testing.T) {
 		*target = updated
 	}
 	hidden, unrelated := uuid.New(), uuid.New()
-	// These records exercise platform list filtering without opening either
-	// synthetic endpoint. No target database changes are needed for list reads.
+	// Record sintetis menguji filter daftar platform tanpa membuka endpoint target atau mengubah database
+	// target.
 	for _, target := range []struct {
 		id     uuid.UUID
 		name   string

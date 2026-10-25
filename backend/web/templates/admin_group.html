@@ -1,8 +1,4 @@
-{{/*
-S-04. Data: Layout, GroupProfile (ID, Name, IsActive, Revision), Form (Name, IsActive,
-ExpectedRevision), Members (ID, Username, DisplayName, IsActive), MemberChoices (same),
-Grants (DatabaseID, DatabaseName, Access), DatabaseChoices (ID, Name), Error, and Conflict.
-*/}}
+{{/* Detail group, membership, dan grant. Form konflik mempertahankan input pengguna. */}}
 {{define "admin_group"}}{{template "header" .}}
 {{if .Conflict}}
 <p class="status failed" role="alert">This group changed before your update was saved. <a href="/admin/groups/{{.GroupProfile.ID}}">Open the latest version</a> and try again.</p>

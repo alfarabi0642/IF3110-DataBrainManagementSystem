@@ -1,2 +1,2 @@
-// Package admin is reserved for platform administration.
+// Package admin mengelola user, group, membership, dan grant platform.
 package admin

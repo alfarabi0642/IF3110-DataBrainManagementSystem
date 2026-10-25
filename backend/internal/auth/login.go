@@ -21,8 +21,8 @@ type loginUser struct {
 	securityVersion int64
 }
 
-// Login verifies outside locks, then rechecks the user and old family before
-// revoking it and inserting the authenticated family in one transaction.
+// Login memverifikasi password sebelum lock, lalu memeriksa ulang user dan family lama. Pencabutan
+// family lama dan pembuatan family authenticated berada dalam satu transaksi.
 func (s *Service) Login(ctx context.Context, previous Session, username, password string) (Session, string, error) {
 	if previous.ID == uuid.Nil || previous.Kind != AnonymousSession && previous.Kind != AuthenticatedSession {
 		return Session{}, "", sessionFailure(problem.SessionInvalid)

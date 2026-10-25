@@ -13,7 +13,7 @@ type TargetSettings struct {
 	CAFile       string
 }
 
-// LoadTargetSettings is required only when a target Provider is installed.
+// LoadTargetSettings diperlukan saat Provider target dipasang.
 func LoadTargetSettings(appEnv string) (TargetSettings, error) {
 	cfg := TargetSettings{AppEnv: appEnv, CAFile: os.Getenv("TARGET_CA_FILE")}
 	if appEnv != "development" && appEnv != "test" && appEnv != "production" {
@@ -29,7 +29,7 @@ func LoadTargetSettings(appEnv string) (TargetSettings, error) {
 	return cfg, nil
 }
 
-// NormalizeTargetHost accepts one DNS host or IP, never a URL, DSN or socket.
+// NormalizeTargetHost menerima satu host DNS atau IP, tanpa URL, DSN, atau socket.
 func NormalizeTargetHost(raw string) (string, error) {
 	host := strings.TrimSpace(raw)
 	if ip, err := netip.ParseAddr(host); err == nil && ip.Zone() == "" {

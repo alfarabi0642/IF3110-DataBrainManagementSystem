@@ -1,14 +1,9 @@
-{{/*
-Data:Layout, Schema, Table, Tab (data|columns|constraints|indexes), AllHref, SchemaHref,
-Schemas and Tables (Name, Href), Tabs (Label, Href, Current), and the selected tab's data:
-Data (Columns, Rows of cells, Ordering note, Prev, Next), ColumnInfo, Constraints, Indexes.
-Every Href is built by the server with encoded query values.
-*/}}
+{{/* Katalog dan halaman data target. Semua link dibentuk server; NULL dibedakan dari string kosong. */}}
 {{define "explorer"}}{{template "header" .}}
 {{if not .Schema}}
 <h2>Schemas</h2>
 {{if .Schemas}}
-<ul class="plain">{{range .Schemas}}<li><a href="{{.Href}}">{{.Name}}</a></li>{{end}}</ul>
+<ul class="plain tiles schemas">{{range .Schemas}}<li><a href="{{.Href}}">{{.Name}}</a></li>{{end}}</ul>
 {{else}}
 <p>This database has no schemas you can browse.</p>
 {{end}}
@@ -17,7 +12,7 @@ Every Href is built by the server with encoded query values.
 {{if not .Table}}
 <h2>Tables in {{.Schema}}</h2>
 {{if .Tables}}
-<ul class="plain">{{range .Tables}}<li><a href="{{.Href}}">{{.Name}}</a></li>{{end}}</ul>
+<ul class="plain tiles tables">{{range .Tables}}<li><a href="{{.Href}}">{{.Name}}</a></li>{{end}}</ul>
 {{else}}
 <p>This schema has no tables.</p>
 {{end}}
@@ -27,7 +22,7 @@ Every Href is built by the server with encoded query values.
 </nav>
 {{if eq .Tab "data"}}
 {{with .Data}}
-{{if .Ordering}}<p class="muted">{{.Ordering}}</p>{{end}}
+{{if .Ordering}}<p class="muted form-help">{{.Ordering}}</p>{{end}}
 {{if .Rows}}
 <div class="table-wrap">
 <table>

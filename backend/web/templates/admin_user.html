@@ -1,8 +1,4 @@
-{{/*
-S-03. Data: Layout, UserProfile (ID, Username, DisplayName, IsActive, IsAdmin, Revision),
-Groups (ID, Name, IsActive), Form (DisplayName, IsActive, IsAdmin, ExpectedRevision), Error,
-and Conflict. Password is deliberately absent from page data.
-*/}}
+{{/* Profil user, membership, dan form administrasi. Password tidak masuk data halaman. */}}
 {{define "admin_user"}}{{template "header" .}}
 {{if .Conflict}}
 <p class="status failed" role="alert">This user changed before your update was saved. <a href="/admin/users/{{.UserProfile.ID}}">Open the latest version</a> and try again.</p>

@@ -22,8 +22,8 @@ import (
 
 type DraftPager struct{ Prev, Next string }
 
-// DraftItem is display data for Jordan's templates. List items leave SQL empty.
-// Revision is text so a conflict can keep the submitted expected revision.
+// DraftItem berisi data draft untuk tampilan. SQL hanya diisi pada detail; Revision berupa teks agar
+// konflik dapat mempertahankan revision kiriman.
 type DraftItem struct {
 	ID, Title, SQL, Revision, UpdatedBy, UpdatedAt string
 }
@@ -99,8 +99,8 @@ func draftPathID(r *http.Request, name string) (uuid.UUID, error) {
 	return httpx.UUIDValue(url.Values{name: {r.PathValue(name)}}, name)
 }
 
-// prepare authorizes before any draft/display lookup. Identity is exclusively
-// the session validated by Brain's middleware and rechecked by Authorizer.
+// prepare mengotorisasi sebelum membaca draft atau data tampilan. Identitas hanya berasal dari session
+// tervalidasi dan diperiksa ulang oleh Authorizer.
 func (h *Handler) prepare(r *http.Request) (httpx.Layout, access.Principal, uuid.UUID, error) {
 	return h.prepareAction(r, access.MigrationWrite)
 }

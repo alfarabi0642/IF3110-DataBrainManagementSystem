@@ -14,16 +14,16 @@ import (
 
 const MaxStatements = 50
 
-// Statement references an unchanged byte range of the validated input. SQL is
-// for the future runner's transaction, never a standalone connection Exec.
+// Statement menunjuk rentang byte input tervalidasi tanpa perubahan. SQL dijalankan dalam transaksi
+// runner, bukan Exec mandiri.
 type Statement struct {
 	Index, Start, End int
 	Kind              string
 	SQL               string
 }
 
-// SQLValidationError exposes only a code and numeric diagnostics. Position is
-// the parser's one-based character position (zero when unavailable).
+// SQLValidationError hanya menampilkan kode dan diagnostic numerik. Position dihitung dari satu, atau
+// nol jika tidak tersedia.
 type SQLValidationError struct {
 	Code           problem.Code
 	StatementIndex int
@@ -33,9 +33,8 @@ type SQLValidationError struct {
 func (e *SQLValidationError) Error() string { return string(e.Code) }
 func (e *SQLValidationError) Unwrap() error { return &problem.Error{Code: e.Code} }
 
-// ValidateSQL parses PostgreSQL 17 syntax and applies the M1 migration policy.
-// It neither checks object existence/permissions nor connects to a database.
-// An error returns no executable slices, even if earlier statements were valid.
+// ValidateSQL memeriksa sintaks PostgreSQL 17 dan policy migration aplikasi tanpa koneksi database atau
+// pemeriksaan objek/izin. Saat error, tidak ada potongan SQL yang boleh dijalankan.
 func ValidateSQL(sql string) ([]Statement, error) {
 	invalid := func() ([]Statement, error) { return nil, &SQLValidationError{Code: problem.SQLInvalid} }
 	if len(sql) == 0 || len(sql) > MaxSQLBytes || !utf8.ValidString(sql) || strings.ContainsRune(sql, 0) {
@@ -56,16 +55,16 @@ func ValidateSQL(sql string) ([]Statement, error) {
 	if tree.Version/10000 != 17 || len(tree.Stmts) > MaxStatements {
 		return nil, &SQLValidationError{Code: problem.SQLUnsupported}
 	}
-	// PostgreSQL truncates identifiers during parsing. Check scanner tokens as
-	// well so an overlong identifier cannot silently refer to a different name.
+	// PostgreSQL memotong identifier saat parsing. Periksa token scanner juga agar nama terlalu panjang
+	// tidak diam-diam menunjuk objek lain.
 	scan, err := query.Scan(sql)
 	if err != nil {
 		return invalid()
 	}
 	for _, token := range scan.Tokens {
 		if token.Token == pg.Token_UIDENT {
-			// Ordinary quoted Unicode is supported; U& escape syntax is outside
-			// this policy rather than introducing a second Unicode SQL decoder.
+			// Unicode dengan kutip biasa didukung. Sintaks escape U& berada di luar policy agar tidak diperlukan
+			// decoder Unicode SQL kedua.
 			return nil, &SQLValidationError{Code: problem.SQLUnsupported}
 		}
 		if token.Token != pg.Token_IDENT {
@@ -133,9 +132,8 @@ func statementKind(n *pg.Node) string {
 	}
 }
 
-// Only populated raw-parser fields listed here are accepted. An unlisted node,
-// field or protobuf unknown field fails closed, including in expressions/CTEs.
-// This is deliberately specific to the pinned PostgreSQL 17 raw AST.
+// Hanya field parser dalam daftar ini yang diterima. Node, field, atau protobuf unknown field lain
+// ditolak, termasuk dalam ekspresi/CTE. Aturan terikat pada AST PostgreSQL 17 yang dipakai.
 var sqlFields = map[protoreflect.Name]string{
 	"CreateStmt":       "relation table_elts oncommit access_method if_not_exists",
 	"AlterTableStmt":   "relation cmds objtype missing_ok",
@@ -196,8 +194,8 @@ func allowedSQL(m protoreflect.Message, root bool) bool {
 		return false
 	}
 	if n, ok := m.Interface().(*pg.Node); ok {
-		// The raw tree represents NULL list elements as empty Nodes, including
-		// SELECT DISTINCT and the optional column list of a range function.
+		// Parser mewakili elemen NULL dengan Node kosong, termasuk SELECT DISTINCT dan daftar kolom opsional
+		// range function.
 		if n.Node == nil {
 			return !root
 		}
@@ -293,7 +291,7 @@ func sqlShape(message protoreflect.ProtoMessage, root bool) bool {
 		case pg.ObjectType_OBJECT_COLUMN:
 			return n.RelationType == pg.ObjectType_OBJECT_TABLE && sqlIdentifier(n.Subname)
 		case pg.ObjectType_OBJECT_TABCONSTRAINT:
-			// PostgreSQL does not set relationType for this grammar production.
+			// PostgreSQL tidak mengisi relationType untuk bentuk sintaks ini.
 			return sqlIdentifier(n.Subname)
 		default:
 			return false

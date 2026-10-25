@@ -30,8 +30,8 @@ func explorerSessionFor(t *testing.T, f catalogFixture, service *auth.Service, u
 		t.Fatal("cannot create explorer session fixture")
 	}
 	if user != uuid.Nil {
-		// Login is Brain's unfinished feature. Seed only the isolated platform;
-		// requests still pass through the real cookie validator and Authorizer.
+		// Session dibuat langsung untuk mengisolasi pengujian explorer dari login. Request tetap melewati
+		// validator cookie dan Authorizer asli.
 		if _, err := f.pool.Exec(context.Background(), `UPDATE databrain.sessions
 		    SET kind='authenticated',user_id=$2,security_version=1 WHERE id=$1`, state.ID, user); err != nil {
 			t.Fatal("cannot authenticate explorer session fixture")
@@ -41,7 +41,7 @@ func explorerSessionFor(t *testing.T, f catalogFixture, service *auth.Service, u
 }
 
 func TestExplorerHandlersPostgres(t *testing.T) {
-	f := newCatalogFixture(t) // Verifies fixture identity before any mutation.
+	f := newCatalogFixture(t) // Identitas fixture diperiksa sebelum mutasi.
 	ctx := context.Background()
 	renderer, err := httpx.LoadTemplates("../../web/templates")
 	if err != nil {
@@ -168,7 +168,7 @@ func TestExplorerHandlersPostgres(t *testing.T) {
 		if strings.Contains(last.Body.String(), `rel="next"`) {
 			t.Fatal("last page still has next link")
 		}
-		// Every rendered explorer link round-trips through the actual handler.
+		// Setiap link explorer diuji kembali melalui handler asli.
 		for _, entry := range strings.Split(last.Body.String(), `href="`)[1:] {
 			href := html.UnescapeString(strings.SplitN(entry, `"`, 2)[0])
 			if strings.HasPrefix(href, path) {
@@ -219,7 +219,7 @@ func TestExplorerHandlersPostgres(t *testing.T) {
 		exec(`UPDATE databrain.sessions SET revoked_at=clock_timestamp() WHERE id=$1`, viewSession.id)
 		request(t, "GET", secondPath, viewSession, 303)
 	})
-	// The handler performed no target writes; only the explicit fixture SQL did.
+	// Handler tidak menulis ke target; perubahan hanya berasal dari SQL fixture yang eksplisit.
 	var count int
 	if err := f.writers[0].QueryRow(ctx, "SELECT count(*) FROM "+qt).Scan(&count); err != nil || count != 4 {
 		t.Fatal("explorer requests changed target rows")

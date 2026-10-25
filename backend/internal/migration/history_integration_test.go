@@ -18,7 +18,7 @@ import (
 func TestAttemptHistoryPostgres(t *testing.T) {
 	f, s := newAttemptFixture(t)
 	ctx := context.Background()
-	// Valid policy SQL at the size limit. The snapshot is read, never executed.
+	// SQL valid pada batas ukuran hanya dibaca sebagai snapshot, tidak dijalankan.
 	prefix := " \r\n-- 猫 exact snapshot; <script>\r\nCREATE TABLE public.never_executed(id int);\r\n--"
 	sql := prefix + strings.Repeat("x", MaxSQLBytes-len(prefix)-3) + "\t\r\n"
 	d := attemptDraft(t, f, f.a, sql)
@@ -119,8 +119,8 @@ func TestAttemptHistoryPostgres(t *testing.T) {
 		if err != nil || unknown == nil || unknown.State != "unknown" || unknown.FirstUnknownAt == nil || unknown.FirstUnknownAt.Location() != time.UTC || unknown.CommitStartedAt == nil || unknown.FinishedAt != nil || unknown.ResolvedAt != nil || unknown.ResolutionSummary != "" || unknown.Failure == nil || unknown.Failure.Code != "COMMIT_UNCERTAIN" {
 			t.Fatal("unknown history misrepresented the unconfirmed outcome")
 		}
-		// These are legal metadata fixtures, not recovery implementation or proof
-		// of a target outcome. A-08.4 owns the operator command and its locks.
+		// Fixture metadata ini bukan bukti hasil target atau pengujian recovery. Perintah operator dan lock
+		// diuji terpisah.
 		resolveHistoryFixture(t, s, third.Receipt, false)
 		resolved, err := s.Get(ctx, f.a, third.Receipt.ID)
 		if err != nil || resolved == nil || resolved.State != "failed" || resolved.ResolvedAt == nil || resolved.ResolvedAt.Location() != time.UTC || resolved.FirstUnknownAt == nil || !resolved.FirstUnknownAt.Equal(*unknown.FirstUnknownAt) || resolved.ResolutionSummary != "An operator verified that the migration did not commit." || strings.Contains(fmt.Sprintf("%+v", resolved), "PRIVATE") {
@@ -218,7 +218,7 @@ func historyStateFixture(t *testing.T, s *AttemptStore) [2]string {
 	t.Helper()
 	var state [2]string
 	for i, table := range []string{"migration_attempts", "migration_streams"} {
-		// Table names are fixed test constants; private data stays in memory.
+		// Nama tabel berupa konstanta test; data privat tetap di memori.
 		if err := s.pool.QueryRow(context.Background(), `SELECT jsonb_agg(to_jsonb(a))::text FROM (SELECT * FROM databrain.`+table+` ORDER BY target_id`+[]string{`,version`, ``}[i]+`) a`).Scan(&state[i]); err != nil {
 			t.Fatal("cannot inspect isolated history state")
 		}

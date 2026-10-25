@@ -11,9 +11,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// RevokeSession revokes one family, including every alias. The caller supplies
-// an authorized internal ID and commits before clearing the cookie. It does not
-// change the user's security version or revoke their other sessions.
+// RevokeSession mencabut satu family beserta seluruh alias. Pemanggil memasok ID internal yang sudah
+// diotorisasi dan melakukan commit sebelum menghapus cookie. Security version dan family lain tidak
+// berubah.
 func (s *Service) RevokeSession(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
 	if tx == nil || id == uuid.Nil {
 		return sessionFailure(problem.InvalidRequest)
@@ -36,14 +36,11 @@ func (s *Service) RevokeSession(ctx context.Context, tx pgx.Tx, id uuid.UUID) er
 	return nil
 }
 
-// RevokeUsers increments security_version once per distinct user and revokes
-// all their families in the caller's transaction. Call only for actual access
-// reductions. Do not also increment security_version in the caller.
-//
-// Admin callers must first lock security_guard and all involved users in UUID
-// order, recheck the actor/revision, then mutate the domain and invoke this once.
-// These locks are reacquired here for standalone use; sessions are locked last.
-// The caller must roll back on error. This method never commits or rolls back.
+// RevokeUsers menaikkan security_version sekali per user dan mencabut semua family dalam transaksi
+// pemanggil. Panggil hanya untuk pengurangan akses; jangan menaikkan version lagi di pemanggil. Kunci
+// security_guard, seluruh user menurut UUID, lalu session; periksa ulang actor dan revision sebelum
+// mutasi. Lock diambil lagi di sini agar fungsi dapat dipakai mandiri. Pemanggil wajib rollback saat
+// error; fungsi ini tidak melakukan commit atau rollback.
 func (s *Service) RevokeUsers(ctx context.Context, tx pgx.Tx, userIDs []uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -62,10 +59,9 @@ func (s *Service) RevokeUsers(ctx context.Context, tx pgx.Tx, userIDs []uuid.UUI
 	return nil
 }
 
-// ReauthenticateUsers rotates live families and requires password verification
-// after an actual privilege increase. It preserves expiry, last_seen and user
-// security_version. It shares RevokeUsers' lock/transaction caller requirements.
-// No cookie tokens are returned: other users' tokens must not reach the actor.
+// ReauthenticateUsers merotasi family hidup dan mewajibkan verifikasi password setelah privilege
+// meningkat. Expiry, last_seen, dan security_version dipertahankan. Urutan lock dan transaksi sama
+// dengan RevokeUsers. Token tidak dikembalikan agar token user lain tidak diterima actor.
 func (s *Service) ReauthenticateUsers(ctx context.Context, tx pgx.Tx, userIDs []uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

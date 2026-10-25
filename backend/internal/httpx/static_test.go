@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -8,6 +9,28 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestProjectAssetsRemainAvailable(t *testing.T) {
+	mux := NewRouter(nil)
+	root, err := MountStatic(mux, "../../web/static")
+	if err != nil || root == nil {
+		t.Fatal("project assets missing")
+	}
+	defer root.Close()
+	for _, asset := range []struct{ name, contentType string }{
+		{"app.js", "javascript"}, {"favicon.svg", "image/svg+xml"}, {"style.css", "text/css"},
+	} {
+		want, err := os.ReadFile("../../web/static/" + asset.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/static/"+asset.name, nil))
+		if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), want) || !strings.Contains(w.Header().Get("Content-Type"), asset.contentType) {
+			t.Fatalf("asset %s unavailable or wrong MIME", asset.name)
+		}
+	}
+}
 
 func TestMountStaticConfinesAssets(t *testing.T) {
 	base := t.TempDir()

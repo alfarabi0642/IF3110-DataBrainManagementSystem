@@ -1,4 +1,4 @@
-// Package problem defines safe errors shared by backend features.
+// Package problem mendefinisikan error aman untuk fitur backend.
 package problem
 
 type Code string
@@ -6,6 +6,8 @@ type Code string
 const (
 	PlatformUnavailable    Code = "PLATFORM_UNAVAILABLE"
 	InvalidRequest         Code = "INVALID_REQUEST"
+	RouteNotFound          Code = "ROUTE_NOT_FOUND"
+	MethodNotAllowed       Code = "METHOD_NOT_ALLOWED"
 	BodyTooLarge           Code = "BODY_TOO_LARGE"
 	ResultTooLarge         Code = "RESULT_TOO_LARGE"
 	UnsupportedMediaType   Code = "UNSUPPORTED_MEDIA_TYPE"
@@ -44,8 +46,8 @@ const (
 	ExecutionCapacity      Code = "EXECUTION_CAPACITY"
 )
 
-// Error contains only a public code and a safe message. Driver errors, SQL,
-// credentials, and session tokens must never be placed in these fields.
+// Error hanya berisi kode publik dan pesan aman. Error driver, SQL, credential, dan token session
+// tidak boleh dimasukkan.
 type Error struct {
 	Code    Code
 	Message string

@@ -16,8 +16,8 @@ import (
 	"github.com/lib/pq"
 )
 
-// Tests create and drop only uniquely named databases in the verified A-03
-// disposable cluster. No existing application or target database is reset.
+// Test hanya membuat dan menghapus database bernama unik pada cluster disposable tervalidasi. Database
+// aplikasi dan target yang ada tidak direset.
 func migrationFixture(t *testing.T) (string, string) {
 	t.Helper()
 	raw := os.Getenv("DATABRAIN_TEST_ADMIN_URL")
@@ -125,7 +125,7 @@ func TestPlatformMigrations(t *testing.T) {
 	if err := tx.QueryRow("SELECT version, dirty FROM public.schema_migrations").Scan(&version, &dirty); err != nil || uint(version) != Version || dirty {
 		t.Fatal("runtime cannot inspect clean schema version")
 	}
-	// Synthetic hashes/envelopes satisfy storage constraints; no auth is implemented here.
+	// Hash dan envelope sintetis memenuhi constraint penyimpanan; test ini tidak menguji autentikasi.
 	exec(`INSERT INTO databrain.users (id,username,display_name,password_hash) VALUES
 	    ('00000000-0000-0000-0000-000000000001','test_actor','Test Actor','synthetic')`)
 	exec(`INSERT INTO databrain.groups (id,name) VALUES ('00000000-0000-0000-0000-000000000001','Editors')`)
@@ -149,9 +149,9 @@ func TestPlatformMigrations(t *testing.T) {
 	denied(strings.ReplaceAll(attempt, "'reserved'", "'running'"), "P0001")
 	other := strings.Replace(attempt, "VALUES ('00000000-0000-0000-0000-000000000001'", "VALUES ('00000000-0000-0000-0000-000000000002'", 1)
 	other = strings.Replace(other, ",1,1,", ",1,2,", 1)
-	denied(other, "23505") // Same actor/key is unique.
+	denied(other, "23505") // Pasangan actor/key harus unik.
 	other = strings.Replace(other, "'test_actor','00000000-0000-0000-0000-000000000001'", "'test_actor','00000000-0000-0000-0000-000000000002'", 1)
-	denied(other, "23505") // A different key cannot create a second unresolved attempt.
+	denied(other, "23505") // Key lain tidak boleh membuat attempt belum selesai kedua.
 	denied(`UPDATE databrain.migration_attempts SET sql_snapshot='SELECT 2'`, "P0001")
 	denied(`UPDATE databrain.migration_attempts SET state='succeeded',finished_at=now(),outcome_evidence='commit_ack'`, "P0001")
 	denied(`UPDATE databrain.migration_attempts SET state='failed',finished_at=now(),failure_code='SQL_ERROR',failure_message='Failed'`, "23514")

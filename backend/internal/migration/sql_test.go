@@ -106,7 +106,7 @@ func TestSQLUnsupported(t *testing.T) {
 		`CREATE TABLE U&"d\0061t"(id int)`,
 	} {
 		t.Run(sql, func(t *testing.T) {
-			// The test's rejection is policy, not a syntax error from the parser.
+			// Penolakan berasal dari policy, bukan error sintaks parser.
 			if _, err := query.Parse(sql); err != nil {
 				t.Fatalf("unsupported test is not valid PostgreSQL 17 syntax: %v", err)
 			}

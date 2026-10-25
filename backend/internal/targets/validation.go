@@ -13,8 +13,8 @@ type CreateInput struct {
 	Port                                                  int
 }
 
-// EditInput deliberately excludes the immutable host, port and database name.
-// Empty Password retains the existing credential.
+// EditInput tidak mengubah host, port, atau nama database. Password kosong mempertahankan credential
+// lama.
 type EditInput struct {
 	ExpectedRevision                  int64
 	Name, Username, Password, SSLMode string

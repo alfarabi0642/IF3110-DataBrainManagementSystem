@@ -39,7 +39,7 @@ func runnerSQL(t *testing.T, db platformdb.DBTX, sql string, args ...any) {
 
 func newRunnerFixture(t *testing.T) runnerFixture {
 	t.Helper()
-	f, store := newAttemptFixture(t) // Existing owner/path/system identifier check.
+	f, store := newAttemptFixture(t) // Pemeriksaan owner, path, dan identitas fixture tetap aktif.
 	ctx := context.Background()
 	secrets, err := secret.New(bytes.Repeat([]byte{0x82}, 32))
 	if err != nil {
@@ -349,7 +349,7 @@ func TestRunnerPostgres(t *testing.T) {
 	}
 }
 
-// Hooks wrap the real Authorizer; they never replace its authorization result.
+// Hook membungkus Authorizer asli tanpa mengganti hasil otorisasinya.
 type runnerCheckingGuard struct {
 	access.Authorizer
 	before func()
@@ -392,7 +392,7 @@ func TestRunnerConcurrencyPostgres(t *testing.T) {
 	dc := attemptDraft(t, f.draftFixture, f.c, `UPDATE public.runner_order SET value=value+1 WHERE id=1`)
 	if _, err := ValidateSQL(d.SQL); err != nil {
 		t.Fatal(err)
-	} // Warm parser before lock timing.
+	} // Siapkan parser sebelum mengukur penantian lock.
 	lockA, err := f.target.Begin(ctx)
 	if err != nil {
 		t.Fatal("cannot create target barrier")
@@ -432,14 +432,14 @@ func TestRunnerConcurrencyPostgres(t *testing.T) {
 	if initialReplay.err != nil || initialReplay.receipt.ID != active.ID || (initialReplay.receipt.State != "reserved" && initialReplay.receipt.State != "running") {
 		t.Fatal("simultaneous same-key calls did not yield one owner and one receipt")
 	}
-	// Same key can read a running receipt without consuming another slot.
+	// Key yang sama dapat membaca receipt running tanpa mengambil slot baru.
 	replay, err := f.runner.Execute(ctx, f.editor, f.a, d.ID, ReserveInput{1, key})
 	if err != nil || replay.ID != active.ID || replay.State != "running" {
 		t.Fatal("concurrent replay did not find running receipt")
 	}
 	_, err = f.runner.Execute(ctx, f.editor, f.a, d.ID, ReserveInput{1, uuid.New()})
 	requireDraftCode(t, err, problem.TargetBusy)
-	// Target C can commit while A remains blocked.
+	// Target C tetap dapat commit saat A diblokir.
 	_, _, independent := executeRunnerDraft(t, f, f.c, `INSERT INTO public.runner_order VALUES(2,9)`)
 	if independent.State != "succeeded" {
 		t.Fatal("independent target was blocked by A")

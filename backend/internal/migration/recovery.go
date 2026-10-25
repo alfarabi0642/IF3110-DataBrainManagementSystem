@@ -33,8 +33,8 @@ func ValidateResolution(input ResolutionInput) error {
 	return nil
 }
 
-// RecoverInterrupted must run after acquiring the process lock and before
-// accepting traffic. It never opens a target or replays an orphan's SQL.
+// RecoverInterrupted berjalan setelah process lock diperoleh dan sebelum menerima traffic. Fungsi ini
+// tidak membuka target atau mengulang SQL attempt yang terputus.
 func RecoverInterrupted(ctx context.Context, db *platformdb.DB) (int64, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -45,13 +45,13 @@ func RecoverInterrupted(ctx context.Context, db *platformdb.DB) (int64, error) {
 			return attemptFailure(problem.PlatformUnavailable)
 		}
 		defer rollbackAttempt(tx)
-		// Lock stream rows in a stable order before touching their attempts.
+		// Kunci stream dalam urutan tetap sebelum menyentuh attempt.
 		rows, err := tx.Query(ctx, `SELECT target_id FROM databrain.migration_streams ORDER BY target_id FOR UPDATE`)
 		if err != nil {
 			return attemptFailure(problem.PlatformUnavailable)
 		}
 		for rows.Next() {
-			// Draining locks the rows; there is no need to retain target IDs.
+			// Pengurasan hasil mengunci baris; ID target tidak perlu disimpan.
 		}
 		rows.Close()
 		if rows.Err() != nil {
@@ -83,9 +83,9 @@ func RecoverInterrupted(ctx context.Context, db *platformdb.DB) (int64, error) {
 	return count, err
 }
 
-// ResolveAttempt records an operator's explicit evidence during maintenance.
-// It does not verify evidence, execute target SQL, or infer an outcome from the
-// target's current schema. Insufficient evidence must leave the attempt unknown.
+// ResolveAttempt mencatat bukti eksplisit operator saat maintenance. Fungsi ini tidak memverifikasi
+// bukti, menjalankan SQL, atau menyimpulkan hasil dari schema target terkini. Tanpa bukti cukup,
+// status tetap unknown.
 func ResolveAttempt(ctx context.Context, db *platformdb.DB, attemptID uuid.UUID, input ResolutionInput) error {
 	if attemptID == uuid.Nil {
 		return ErrResolutionInput
@@ -101,8 +101,8 @@ func ResolveAttempt(ctx context.Context, db *platformdb.DB, attemptID uuid.UUID,
 			return attemptFailure(problem.PlatformUnavailable)
 		}
 		defer rollbackAttempt(tx)
-		// The CLI names a global attempt UUID; resolve its target server-side,
-		// then scope every lock/update to that target and attempt pair.
+		// CLI menerima UUID attempt global; cari target di server, lalu batasi setiap lock/update pada
+		// pasangan target dan attempt itu.
 		var targetID uuid.UUID
 		var activeID *uuid.UUID
 		if err := tx.QueryRow(ctx, `SELECT target_id FROM databrain.migration_attempts WHERE id=$1`, attemptID).Scan(&targetID); err != nil {

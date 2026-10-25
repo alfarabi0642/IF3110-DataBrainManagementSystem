@@ -1,4 +1,4 @@
-// Package migrations applies the platform schema, separately from user SQL.
+// Package migrations menerapkan schema platform secara terpisah dari SQL pengguna.
 package migrations
 
 import (
@@ -14,7 +14,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
-// Version is the platform schema supported by this build.
+// Version menunjukkan versi schema platform yang didukung build ini.
 const Version uint = 1
 
 //go:embed *.up.sql
@@ -27,8 +27,8 @@ type Result struct {
 	NoChange   bool
 }
 
-// Up never resets or forces a version. Errors deliberately omit driver details,
-// which can contain credentials or complete SQL statements.
+// Up tidak mereset atau memaksa versi. Error menyembunyikan detail driver yang dapat memuat credential
+// atau SQL lengkap.
 func Up(databaseURL string) (Result, error) {
 	return up(databaseURL, files)
 }

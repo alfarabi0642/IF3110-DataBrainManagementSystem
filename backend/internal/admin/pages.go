@@ -19,8 +19,7 @@ type UserItem struct {
 	Revision    int64
 }
 
-// UserForm contains only values safe to redisplay. Passwords stay in request
-// handling and are never copied into a page value.
+// UserForm hanya berisi nilai yang aman ditampilkan ulang. Password tidak disalin ke data halaman.
 type UserForm struct {
 	Username         string
 	DisplayName      string

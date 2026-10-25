@@ -80,7 +80,7 @@ func TestSessionStateExpiryAndIdentity(t *testing.T) {
 	}
 }
 
-// Only Exec is implemented: rotation must not commit or roll back this transaction.
+// Hanya Exec tersedia: rotasi tidak boleh melakukan commit atau rollback transaksi pemanggil.
 type rotationTx struct {
 	pgx.Tx
 	failAt int

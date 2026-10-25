@@ -1,7 +1,4 @@
-{{/*
-S-03. Data: Layout, Users (ID, Username, DisplayName, IsActive, IsAdmin, Revision), Pager,
-Form (Username, DisplayName, IsAdmin), and Error. Password is never redisplayed.
-*/}}
+{{/* Daftar user dan form pembuatan akun. Password tidak masuk data halaman. */}}
 {{define "admin_users"}}{{template "header" .}}
 <p class="page-intro">Create accounts and review active, inactive, and platform administrator access.</p>
 {{if .Users}}

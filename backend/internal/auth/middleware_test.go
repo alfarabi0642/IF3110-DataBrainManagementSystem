@@ -65,7 +65,7 @@ func TestRequireCSRFGatesOriginAndToken(t *testing.T) {
 }
 
 func TestMiddlewarePropagatesUnavailableSessionStore(t *testing.T) {
-	// A closed lazy pool fails without opening any network connection.
+	// Pool yang sudah ditutup gagal tanpa membuka koneksi jaringan.
 	pool, err := pgxpool.New(context.Background(), "postgres://unused@127.0.0.1:1/unused?sslmode=disable")
 	if err != nil {
 		t.Fatal(err)

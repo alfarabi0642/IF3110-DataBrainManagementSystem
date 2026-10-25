@@ -86,9 +86,8 @@ func (s *Service) User(ctx context.Context, actor access.Principal, userID uuid.
 	return user, groups, nil
 }
 
-// EditUser treats deactivation as a reduction even when the submitted role is
-// promoted, and reactivation as an increase even when the role is demoted.
-// This prevents a combined full-form edit from weakening its session effect.
+// EditUser mendahulukan penonaktifan sebagai pengurangan akses dan reaktivasi sebagai peningkatan
+// akses. Perubahan role bersamaan tidak boleh melemahkan efek session.
 func (s *Service) EditUser(ctx context.Context, actor access.Principal, userID uuid.UUID, in EditUserInput) (bool, error) {
 	if err := s.authorizer.RequireAdmin(ctx, actor); err != nil {
 		return false, err
@@ -133,7 +132,7 @@ func (s *Service) EditUser(ctx context.Context, actor access.Principal, userID u
 		return false, ErrRevisionConflict
 	}
 	effect := classifyUserEdit(active, admin, in)
-	if currentName == displayName && effect == preserveUserSessions {
+	if currentName == displayName && active == in.IsActive && admin == in.IsPlatformAdmin {
 		if err := tx.Commit(ctx); err != nil {
 			return false, failure(problem.PlatformUnavailable)
 		}
@@ -168,8 +167,8 @@ func (s *Service) EditUser(ctx context.Context, actor access.Principal, userID u
 	return effect != preserveUserSessions && actor.UserID == userID, nil
 }
 
-// ResetPassword returns true when the acting admin reset their own password;
-// the HTTP caller must redirect that committed request to /login.
+// ResetPassword mengembalikan true jika admin mereset password sendiri. Handler harus mengarahkan ke
+// /login setelah transaksi berhasil.
 func (s *Service) ResetPassword(ctx context.Context, actor access.Principal, userID uuid.UUID, in ResetPasswordInput) (bool, error) {
 	if err := s.authorizer.RequireAdmin(ctx, actor); err != nil {
 		return false, err

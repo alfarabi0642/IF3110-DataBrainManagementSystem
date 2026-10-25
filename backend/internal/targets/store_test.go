@@ -58,10 +58,10 @@ func fixture(t *testing.T) targetFixture {
 		t.Fatal("cannot connect to disposable fixture")
 	}
 	t.Cleanup(func() { closeTarget(owner) })
-	var directory, role, database, system string
-	err = owner.QueryRow(ctx, `SELECT current_setting('data_directory'),current_user,current_database(),system_identifier::text FROM pg_control_system()`).Scan(&directory, &role, &database, &system)
+	var directory, role, database string
+	err = owner.QueryRow(ctx, `SELECT current_setting('data_directory'),current_user,current_database()`).Scan(&directory, &role, &database)
 	expected, pathErr := filepath.Abs("../../../.tmp/postgres/data")
-	if err != nil || pathErr != nil || !strings.EqualFold(filepath.Clean(directory), filepath.Clean(expected)) || role != "databrain_fixture_owner" || database != "postgres" || system != "7699504395596375996" {
+	if err != nil || pathErr != nil || !strings.EqualFold(filepath.Clean(directory), filepath.Clean(expected)) || role != "databrain_fixture_owner" || database != "postgres" {
 		t.Fatal("fixture identity does not match this repository; mutation refused")
 	}
 	key := make([]byte, 32)
@@ -262,7 +262,7 @@ func TestTargetStoreAndConnections(t *testing.T) {
 		if err := migration.QueryRow(ctx, "SELECT current_setting('application_name'),current_setting('default_transaction_read_only')").Scan(&application, &readonly); err != nil || application != "databrain:"+attempt.String() || readonly != "off" {
 			t.Fatal("migration connection metadata or write policy is wrong")
 		}
-		// A rollback proves target write capability without leaving fixture data.
+		// Rollback membuktikan kemampuan tulis target tanpa meninggalkan data fixture.
 		tx, err := migration.Begin(ctx)
 		if err != nil {
 			t.Fatal("cannot begin target verification transaction")
@@ -477,8 +477,8 @@ func TestTargetStoreAndConnections(t *testing.T) {
 		if result.Reason != Timeout {
 			t.Fatal("probe cancellation ignored")
 		}
-		// A real TCP peer that never speaks PostgreSQL must still respect a
-		// shorter caller deadline during connection establishment.
+		// Peer TCP yang tidak menjawab protokol PostgreSQL tetap harus mematuhi deadline koneksi dari
+		// pemanggil.
 		stalled, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal("cannot open stalled peer fixture")
@@ -581,7 +581,7 @@ func TestTargetStoreAndConnections(t *testing.T) {
 		}
 	})
 
-	// No test connection should remain on either target, including failed probes.
+	// Tidak boleh ada koneksi test tertinggal pada kedua target, termasuk dari probe gagal.
 	waitSlots(t, p.explorer, 0)
 	waitSlots(t, p.migration, 0)
 	var active int

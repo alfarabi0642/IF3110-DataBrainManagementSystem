@@ -333,7 +333,7 @@ func TestValidationRechecksTokenExpiryAfterLockWait(t *testing.T) {
 
 func waitForFamilyLock(t *testing.T, ctx context.Context, tx pgx.Tx, result <-chan error) {
 	t.Helper()
-	// Wait for a real database lock waiter, not a timing guess.
+	// Tunggu sampai database benar-benar mencatat penunggu lock.
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
 	for {

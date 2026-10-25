@@ -1,10 +1,7 @@
-{{/*
-Data: Layout and Attempt: ID, Version, Title, TargetName, Revision, Actor, State, SQL, SQLHash, CreatedAt, StartedAt, CommitStartedAt,
-FinishedAt, FailureCode, FailureMessage, SQLState, StatementIndex (1-based, 0 = none),
-FirstUnknownAt, ResolvedAt, ResolutionSummary. Optional fields are empty when not set.
-*/}}
+{{/* Detail attempt memakai snapshot tetap. Hasil unknown hanya menawarkan pemeriksaan receipt. */}}
 {{define "attempt"}}{{template "header" .}}
 {{with .Attempt}}
+<div class="verdict {{.State}}" aria-hidden="true"><span class="verdict-ring"></span><span class="verdict-word">{{.State}}</span></div>
 <p class="status {{.State}}" role="status">
   {{template "state" .State}}
   {{if eq .State "succeeded"}}The migration was committed to the database.
@@ -35,7 +32,7 @@ FirstUnknownAt, ResolvedAt, ResolutionSummary. Optional fields are empty when no
   <dt>SQL SHA-256</dt><dd><code>{{.SQLHash}}</code></dd>
 </dl>
 <h2>SQL that ran</h2>
-<pre>{{.SQL}}</pre>
+<pre class="sql">{{.SQL}}</pre>
 {{end}}
-<p><a href="/databases/{{.Database.ID}}/migrations">Back to history</a></p>
+<p class="back"><a href="/databases/{{.Database.ID}}/migrations">Back to history</a></p>
 {{template "footer" .}}{{end}}

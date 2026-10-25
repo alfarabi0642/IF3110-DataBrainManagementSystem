@@ -13,8 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Target is safe for an authorized admin page. It contains no password or
-// ciphertext. User-facing database lists must use their own smaller projection.
+// Target aman untuk halaman admin yang diotorisasi, tanpa password atau ciphertext. Daftar database
+// user memakai proyeksi yang lebih kecil.
 type Target struct {
 	ID, CreatedBy                      uuid.UUID
 	Name, Host, DatabaseName, Username string
@@ -94,8 +94,8 @@ func (p *Provider) Get(ctx context.Context, targetID uuid.UUID) (Target, error) 
 	return s.Target, err
 }
 
-// Create probes before acquiring a platform transaction. Target and stream are
-// inserted atomically; the unique identity also covers inactive records.
+// Create melakukan probe sebelum transaksi platform. Target dan stream disimpan atomik; keunikan
+// identitas juga mencakup record nonaktif.
 func (p *Provider) Create(ctx context.Context, actorID uuid.UUID, input CreateInput) (Target, error) {
 	if actorID == uuid.Nil {
 		return Target{}, failure(problem.InvalidRequest)
@@ -140,9 +140,8 @@ func (p *Provider) Create(ctx context.Context, actorID uuid.UUID, input CreateIn
 	return s.Target, nil
 }
 
-// Edit probes changed credentials/TLS and reactivation before taking locks.
-// The subsequent stream lock and revision recheck reject races without holding
-// a platform transaction across any target network operation.
+// Edit melakukan probe credential/TLS baru dan reaktivasi sebelum lock. Lock stream dan pemeriksaan
+// revision berikutnya menolak race tanpa menahan transaksi platform selama operasi jaringan target.
 func (p *Provider) Edit(ctx context.Context, targetID uuid.UUID, input EditInput) (Target, error) {
 	if input.ExpectedRevision < 1 {
 		return Target{}, failure(problem.InvalidRequest)

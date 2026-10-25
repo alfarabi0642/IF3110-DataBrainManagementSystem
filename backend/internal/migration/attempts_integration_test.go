@@ -45,8 +45,7 @@ func mustReserve(t *testing.T, s *AttemptStore, f draftFixture, d Draft, input R
 	return r
 }
 
-// Outcome fixtures exercise reservation ordering, not the future target runner.
-// Only this test's platform metadata changes; no target SQL is executed.
+// Fixture hasil menguji urutan reservasi dengan metadata platform saja, tanpa SQL target.
 func finishAttemptFixture(t *testing.T, s *AttemptStore, r Reservation, success bool) {
 	t.Helper()
 	ctx := context.Background()
@@ -257,7 +256,7 @@ func TestAttemptStorePostgres(t *testing.T) {
 	})
 	t.Run("failed retry advances version and unknown stays blocked", func(t *testing.T) {
 		db := attemptDraft(t, f, f.b, "CREATE TABLE public.not_run(id int)")
-		key := ReserveInput{1, input.RequestKey} // Same key is independent on another target.
+		key := ReserveInput{1, input.RequestKey} // Key yang sama terpisah pada target lain.
 		first := mustReserve(t, s, f, db, key)
 		finishAttemptFixture(t, s, first, false)
 		retry := mustReserve(t, s, f, db, ReserveInput{1, uuid.New()})
@@ -303,8 +302,8 @@ func waitAttemptBlockers(t *testing.T, pool *pgxpool.Pool, blocker, want int) {
 	defer tick.Stop()
 	for {
 		var n int
-		// PostgreSQL may queue the second row-lock waiter behind the first
-		// waiter, so direct blockers need not both name the barrier's PID.
+		// PostgreSQL dapat mengantre penunggu lock kedua di belakang yang pertama; blocker langsung tidak
+		// harus menunjuk PID penghalang.
 		if err := pool.QueryRow(context.Background(), `SELECT count(DISTINCT pid) FROM pg_stat_activity
 		    WHERE datname=current_database() AND pid<>$1 AND wait_event_type='Lock'
 		    AND query LIKE 'SELECT next_version,active_attempt_id%'`, blocker).Scan(&n); err != nil {
@@ -372,7 +371,7 @@ func TestAttemptConcurrencyPostgres(t *testing.T) {
 			}
 			close(start)
 			waitAttemptBlockers(t, s.pool, pid, 2)
-			// A different stream must complete while A remains locked.
+			// Stream lain harus selesai saat stream A masih terkunci.
 			other, err := s.Reserve(ctx, f.b, db.ID, f.actor, ReserveInput{1, key})
 			if err != nil || !other.Created() {
 				t.Fatal("target B waited for target A")
@@ -460,9 +459,8 @@ func TestAttemptConcurrencyPostgres(t *testing.T) {
 	}
 }
 
-// A tiny transport fault drops the actual server response to one COMMIT after
-// reading it. PostgreSQL really commits; the store must use a fresh connection
-// for proof instead of treating the transport error as rollback or replaying.
+// Gangguan transport membuang response satu COMMIT setelah diterima. PostgreSQL benar-benar commit;
+// store harus mencari bukti lewat koneksi baru, tanpa menebak rollback atau mengulang SQL.
 type lostCommitAckConn struct {
 	net.Conn
 	drop atomic.Bool
@@ -530,8 +528,8 @@ func TestAttemptCommitProofPostgres(t *testing.T) {
 	_, err = s.recoverReservation(f.a, d.ID, f.actor, uuid.New(), uuid.New(), 1)
 	requireDraftCode(t, err, problem.PlatformUnavailable)
 
-	// A real deferred trigger rejects COMMIT after INSERT/UPDATE succeeded.
-	// It exists only in the isolated test DB, installed by its fixture owner.
+	// Deferred trigger nyata menolak COMMIT setelah INSERT/UPDATE berhasil. Trigger hanya dipasang oleh
+	// owner pada database test terisolasi.
 	cfgOwner := f.target.Config().Copy()
 	cfgOwner.Database = pool.Config().ConnConfig.Database
 	owner, err := pgx.ConnectConfig(ctx, cfgOwner)

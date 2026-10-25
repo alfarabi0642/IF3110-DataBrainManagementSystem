@@ -19,8 +19,8 @@ type ReviewPage struct {
 	RequestKey, Error, Code, RequestID, ReviewHref, ReceiptHref string
 }
 
-// AttemptItem adapts the immutable history projection to the existing templates.
-// Operator identity/evidence and the request key never enter this display data.
+// AttemptItem menyiapkan snapshot history untuk template. Identitas/bukti operator dan request key
+// tidak masuk data tampilan.
 type AttemptItem struct {
 	ID, Version, Title, TargetName, Revision, Actor, State          string
 	SQL, SQLHash, CreatedAt, StartedAt, CommitStartedAt, FinishedAt string
@@ -64,8 +64,8 @@ func reviewInput(values url.Values) (ReserveInput, error) {
 	return ReserveInput{revision, key}, err
 }
 
-// Errors never offer another submit: the user first checks the same key via GET.
-// No draft read is needed here, even if the platform stopped responding after claim.
+// Saat error, pengguna memeriksa key yang sama lewat GET sebelum tindakan lain. Draft tidak perlu
+// dibaca meski platform berhenti merespons setelah claim.
 func (h *Handler) reviewError(w http.ResponseWriter, r *http.Request, layout httpx.Layout, target, draft uuid.UUID, input ReserveInput, err error) {
 	status, code, message := httpx.ErrorInfo(err)
 	if code == problem.SessionInvalid {
@@ -111,7 +111,7 @@ func (h *Handler) review(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, layout, err)
 		return
 	}
-	// Receipt matching precedes current draft revision and target busy checks.
+	// Cocokkan receipt sebelum memeriksa revision draft terkini dan target sibuk.
 	receipt, err := h.runner.replay(r.Context(), target, draftID, principal.UserID, input)
 	if err == nil && receipt != nil {
 		_ = httpx.SeeOther(w, r, attemptPath(target, receipt.ID))
@@ -159,8 +159,8 @@ func (h *Handler) execute(w http.ResponseWriter, r *http.Request) {
 			h.fail(w, r, layout, err)
 			return
 		}
-		// A lost response/persistence error may still leave a durable receipt.
-		// Read once with bounded cleanup time; never retry SQL or change the key.
+		// Response hilang atau error persistence masih dapat menyisakan receipt permanen. Baca sekali dengan
+		// batas waktu cleanup; jangan mengulang SQL atau mengganti key.
 		end, _ := r.Context().Deadline()
 		ctx, cancel := cleanupExecutionContext(end, 2*time.Second)
 		stored, lookupErr := h.runner.replay(ctx, target, draftID, principal.UserID, input)

@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// LoadPlatformDatabaseURL reads only the runtime DSN. It never falls back to
-// MIGRATOR_DATABASE_URL, and errors never include either connection string.
+// LoadPlatformDatabaseURL hanya membaca DSN runtime, tanpa fallback ke migrator. Pesan error tidak
+// memuat connection string.
 func LoadPlatformDatabaseURL(appEnv string) (string, error) {
 	raw := os.Getenv("PLATFORM_DATABASE_URL")
 	u, err := url.Parse(raw)
@@ -30,5 +30,15 @@ func LoadPlatformDatabaseURL(appEnv string) (string, error) {
 	if appEnv == "production" && query.Get("sslmode") != "verify-full" {
 		return "", errors.New("PLATFORM_DATABASE_URL requires sslmode=verify-full in production")
 	}
-	return raw, nil
+	return databasePassword(u, raw, "PLATFORM_DATABASE_PASSWORD"), nil
+}
+
+// databasePassword menyisipkan password mentah tanpa menganggapnya bagian dari URI. Variabel yang
+// tidak diisi mempertahankan password pada URL untuk kompatibilitas.
+func databasePassword(u *url.URL, raw, key string) string {
+	if password, ok := os.LookupEnv(key); ok {
+		u.User = url.UserPassword(u.User.Username(), password)
+		return u.String()
+	}
+	return raw
 }

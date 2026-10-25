@@ -21,7 +21,7 @@ func checkCode(t *testing.T, err error, code problem.Code) {
 }
 
 func TestCatalogSelection(t *testing.T) {
-	e := New(nil) // Invalid selections must be rejected before opening a target.
+	e := New(nil) // Tolak pilihan tidak valid sebelum membuka target.
 	for _, tc := range []struct {
 		schema, table string
 		code          problem.Code

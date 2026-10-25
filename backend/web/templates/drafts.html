@@ -1,7 +1,4 @@
-{{/*
-Data:Layout, Drafts (ID, Title, Revision, UpdatedAt, UpdatedBy), Pager, Form (Title, SQL
-as safely redisplayed), Error (summary text, empty when none).
-*/}}
+{{/* Daftar draft dan form draft baru; penyimpanan belum menjalankan SQL. */}}
 {{define "drafts"}}{{template "header" .}}
 {{if .Drafts}}
 <div class="table-wrap">

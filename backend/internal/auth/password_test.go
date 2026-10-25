@@ -130,7 +130,7 @@ func TestRejectMalformedPasswordHashes(t *testing.T) {
 	}
 	for name, encoded := range cases {
 		t.Run(name, func(t *testing.T) {
-			// Malformed hashes must be rejected before the hashing/capacity path.
+			// Hash rusak harus ditolak sebelum jalur hashing dan pembatasan kapasitas.
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
 			match, err := VerifyPassword(ctx, "Valid-test-password", encoded)
@@ -161,7 +161,7 @@ func TestPasswordCapacityAndCancellation(t *testing.T) {
 	for name, operation := range passwordOperations() {
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				// Keep the capacity channel in this bubble so its wait advances fake time.
+				// Channel kapasitas berada dalam bubble test agar penantiannya memajukan waktu simulasi.
 				originalSlots := passwordHashSlots
 				passwordHashSlots = make(chan struct{}, 2)
 				defer func() { passwordHashSlots = originalSlots }()

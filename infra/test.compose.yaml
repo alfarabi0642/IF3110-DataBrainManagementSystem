@@ -1,0 +1,46 @@
+# Fixture ini terpisah dari Compose aplikasi dan tidak membuka port host.
+services:
+  postgres:
+    image: postgres:17.11
+    command: ["postgres", "-p", "55432", "-c", "listen_addresses=127.0.0.1"]
+    environment:
+      POSTGRES_USER: databrain_fixture_owner
+      POSTGRES_PASSWORD: test-owner-password
+      POSTGRES_DB: postgres
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+      PGDATA: /workspace/.tmp/postgres/data
+      DATABRAIN_FIXTURE_DATA_DIR: /workspace/.tmp/postgres/data
+      DATABRAIN_MIGRATOR_PASSWORD: test-migrator-password
+      DATABRAIN_RUNTIME_PASSWORD: test-runtime-password
+      DATABRAIN_TARGET_PASSWORD: test-target-password
+    volumes:
+      - testdata:/workspace/.tmp/postgres/data
+      - ../backend/dev/setup.sql:/docker-entrypoint-initdb.d/01-setup.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -p 55432 -U databrain_fixture_owner -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  tests:
+    image: golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c
+    network_mode: service:postgres
+    working_dir: /workspace/backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GOTOOLCHAIN: local
+      DATABRAIN_TEST_ADMIN_URL: postgres://databrain_fixture_owner:test-owner-password@127.0.0.1:55432/postgres?sslmode=disable
+      DATABRAIN_OWNER_PASSWORD: test-owner-password
+      DATABRAIN_MIGRATOR_PASSWORD: test-migrator-password
+      DATABRAIN_RUNTIME_PASSWORD: test-runtime-password
+      DATABRAIN_TARGET_PASSWORD: test-target-password
+    volumes:
+      - ..:/workspace:ro
+      - gomod:/go/pkg/mod
+      - gobuild:/root/.cache/go-build
+    command: ["sh", "-c", "go test -json -p 1 -count=1 ./... && go vet ./..."]
+volumes:
+  testdata:
+  gomod:
+  gobuild:
