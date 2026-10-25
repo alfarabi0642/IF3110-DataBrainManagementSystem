@@ -1,2 +1,2 @@
-// Package migration stores SQL drafts in the platform database.
+// Package migration mengelola draft, eksekusi transaksional, riwayat, dan recovery migration.
 package migration

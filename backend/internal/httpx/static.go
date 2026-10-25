@@ -9,8 +9,8 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
 )
 
-// MountStatic registers assets only when the directory exists. The caller must
-// close the returned root after HTTP shutdown. os.Root also confines symlinks.
+// MountStatic memasang asset jika direktori tersedia. Tutup root setelah HTTP shutdown; os.Root juga
+// membatasi symlink.
 func MountStatic(mux *http.ServeMux, dir string) (*os.Root, error) {
 	root, err := os.OpenRoot(dir)
 	if errors.Is(err, fs.ErrNotExist) {

@@ -1,5 +1,5 @@
-// Package targets stores target configuration and opens dedicated connections.
-// Callers must authorize access before using the Provider directly.
+// Package targets menyimpan konfigurasi target dan membuka koneksi khusus. Pemanggil wajib
+// mengotorisasi akses sebelum memakai Provider langsung.
 package targets
 
 import (
@@ -55,8 +55,8 @@ type Provider struct {
 	migration chan struct{}
 }
 
-// NewProvider validates policy without opening a target or taking a process lock.
-// Use one Provider per server, sharing the existing platform pool.
+// NewProvider memvalidasi policy tanpa membuka target atau mengambil process lock. Satu Provider per
+// server berbagi pool platform yang ada.
 func NewProvider(pool *pgxpool.Pool, secrets *secret.Secrets, settings config.TargetSettings) (*Provider, error) {
 	if pool == nil || secrets == nil || len(settings.AllowedHosts) == 0 ||
 		(settings.AppEnv != "development" && settings.AppEnv != "test" && settings.AppEnv != "production") {
@@ -78,8 +78,8 @@ func NewProvider(pool *pgxpool.Pool, secrets *secret.Secrets, settings config.Ta
 			return nil, failure(problem.ValidationFailed)
 		}
 	}
-	// Parse a fixed string to obtain pgx's required internal initialization.
-	// Actual target fields are assigned directly, never interpolated into a DSN.
+	// Parse string tetap untuk inisialisasi internal pgx. Field target diisi langsung, tanpa interpolasi
+	// DSN.
 	base, err := pgx.ParseConfig("host=localhost port=5432 dbname=unused user=unused password=unused sslmode=disable connect_timeout=5")
 	if err != nil {
 		return nil, failure(problem.ValidationFailed)
@@ -88,8 +88,8 @@ func NewProvider(pool *pgxpool.Pool, secrets *secret.Secrets, settings config.Ta
 	return p, nil
 }
 
-// connectionConfig explicitly overrides ambient libpq settings, including any
-// service file's runtime options, credentials, TLS fallbacks and role selection.
+// connectionConfig menimpa konfigurasi libpq dari environment/service file, termasuk opsi runtime,
+// credential, fallback TLS, dan role.
 func (p *Provider) connectionConfig(in CreateInput, application string, readOnly bool) *pgx.ConnConfig {
 	cfg := p.base.Copy()
 	cfg.Host, cfg.Port, cfg.Database, cfg.User, cfg.Password = in.Host, uint16(in.Port), in.DatabaseName, in.Username, in.Password
@@ -121,7 +121,7 @@ func (p *Provider) forbidden(ctx context.Context, in CreateInput) (bool, error) 
 	}
 	platformHost, err := config.NormalizeTargetHost(p.platform.Host)
 	if err != nil {
-		return true, nil // Cannot establish safe separation from the platform endpoint.
+		return true, nil // Pemisahan dari endpoint platform tidak dapat dipastikan.
 	}
 	if in.Host == platformHost {
 		return true, nil
@@ -152,12 +152,12 @@ func connectReason(ctx context.Context, err error) ProbeReason {
 	if errors.As(err, &pgErr) && (pgErr.Code == "28P01" || pgErr.Code == "28000") {
 		return AuthenticationFailed
 	}
-	// Windows reports the Winsock WSAECONNREFUSED code rather than the POSIX
-	// compatibility constant exported as syscall.ECONNREFUSED.
+	// Windows memakai kode Winsock WSAECONNREFUSED, berbeda dari konstanta kompatibilitas POSIX
+	// syscall.ECONNREFUSED.
 	if errors.Is(err, syscall.ECONNREFUSED) || runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(10061)) {
 		return ConnectionRefused
 	}
-	// Only classify driver text; never return, wrap, or log it.
+	// Teks driver hanya dipakai untuk klasifikasi; jangan dikembalikan, dibungkus, atau dicatat.
 	if strings.Contains(strings.ToLower(err.Error()), "tls") {
 		return TLSFailed
 	}
@@ -214,8 +214,8 @@ func supportedServerVersion(version int) bool {
 	return major == 17 || major == 18
 }
 
-// Probe validates the proposed connection, opens it for at most five seconds,
-// and closes it. A failure includes only an allowlisted reason and safe code.
+// Probe membuka koneksi usulan maksimal lima detik lalu menutupnya. Kegagalan hanya memuat alasan yang
+// diizinkan dan kode aman.
 func (p *Provider) Probe(ctx context.Context, input CreateInput) (ProbeResult, error) {
 	bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -231,8 +231,8 @@ func (p *Provider) Probe(ctx context.Context, input CreateInput) (ProbeResult, e
 	return result, nil
 }
 
-// Test probes stored credentials, including inactive targets, without mutation.
-// Connection failure is a result; a platform lookup failure remains an error.
+// Test memeriksa credential tersimpan termasuk target nonaktif tanpa mutasi. Kegagalan koneksi adalah
+// hasil probe; kegagalan lookup platform tetap error.
 func (p *Provider) Test(ctx context.Context, targetID uuid.UUID) (ProbeResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -260,8 +260,8 @@ func (p *Provider) OpenExplorer(ctx context.Context, targetID uuid.UUID) (*pgx.C
 	return p.open(ctx, targetID, 0, uuid.Nil, true)
 }
 
-// OpenMigration requires the exact configuration revision saved by the runner.
-// It does not authorize, reserve, claim or execute an attempt.
+// OpenMigration memerlukan revision konfigurasi yang disimpan runner. Fungsi ini tidak mengotorisasi,
+// mereservasi, mengklaim, atau menjalankan attempt.
 func (p *Provider) OpenMigration(ctx context.Context, targetID uuid.UUID, configRevision int64, attemptID uuid.UUID) (*pgx.Conn, error) {
 	if configRevision < 1 || attemptID == uuid.Nil {
 		return nil, failure(problem.InvalidRequest)
@@ -313,8 +313,8 @@ func (p *Provider) open(ctx context.Context, targetID uuid.UUID, revision int64,
 		return nil, failure(problem.TargetUnavailable)
 	}
 	release = false
-	// The public contract returns *pgx.Conn. Release capacity only after pgx has
-	// closed all underlying resources, including asynchronous cancel cleanup.
+	// API mengembalikan *pgx.Conn. Kapasitas baru dilepas setelah semua resource pgx tertutup, termasuk
+	// cleanup pembatalan asinkron.
 	go func() { <-conn.PgConn().CleanupDone(); <-slots }()
 	return conn, nil
 }

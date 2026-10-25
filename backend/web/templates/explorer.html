@@ -1,9 +1,4 @@
-{{/*
-Data:Layout, Schema, Table, Tab (data|columns|constraints|indexes), AllHref, SchemaHref,
-Schemas and Tables (Name, Href), Tabs (Label, Href, Current), and the selected tab's data:
-Data (Columns, Rows of cells, Ordering note, Prev, Next), ColumnInfo, Constraints, Indexes.
-Every Href is built by the server with encoded query values.
-*/}}
+{{/* Katalog dan halaman data target. Semua link dibentuk server; NULL dibedakan dari string kosong. */}}
 {{define "explorer"}}{{template "header" .}}
 {{if not .Schema}}
 <h2>Schemas</h2>

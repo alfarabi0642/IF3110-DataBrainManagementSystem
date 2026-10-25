@@ -1,9 +1,4 @@
-{{/*
-Admin connection list. Data:Layout, Databases (targets.Target: ID, Name, Host, Port,
-DatabaseName, Username, SSLMode, IsActive), Pager, Form (ConnectionForm: Name, Host, Port,
-DatabaseName, Username, SSLMode, all strings), Error and Code (empty when none).
-The password is never part of Form, so its input always renders empty.
-*/}}
+{{/* Daftar metadata koneksi untuk admin; tidak memuat credential. */}}
 {{define "admin_databases"}}{{template "header" .}}
 {{with .Error}}<p class="status failed" role="alert">{{.}} <code>{{$.Code}}</code></p>{{end}}
 {{if .Databases}}

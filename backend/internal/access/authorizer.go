@@ -43,9 +43,9 @@ func (a *authorizer) RequireAdmin(ctx context.Context, p Principal) error {
 	return RequireAdminIn(bounded, lease, p)
 }
 
-// RequireAdminIn reuses the live admin check on the caller's connection or
-// transaction. Mutations must lock security_guard, actor user, then actor
-// session before this check, using READ COMMITTED to recheck after lock waits.
+// RequireAdminIn memeriksa admin melalui koneksi atau transaksi pemanggil. Sebelum mutasi, kunci
+// security_guard, user actor, lalu session actor. READ COMMITTED membaca ulang state setelah menunggu
+// lock.
 func RequireAdminIn(ctx context.Context, db platformdb.DBTX, p Principal) error {
 	if !validPrincipal(p) {
 		return accessFailure(problem.SessionInvalid)

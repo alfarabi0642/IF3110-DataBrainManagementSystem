@@ -1,4 +1,4 @@
-{{/* Data: Layout, Draft, RequestKey; Error/Code/RequestID and same-key ReviewHref/ReceiptHref on errors. */}}
+{{/* Review revision tersimpan. Saat error, link receipt tetap memakai request key yang sama. */}}
 {{define "review"}}{{template "header" .}}
 {{if .Error}}
 <p class="status failed" role="alert">{{.Error}}</p>

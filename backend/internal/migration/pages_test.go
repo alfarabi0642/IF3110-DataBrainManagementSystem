@@ -9,8 +9,7 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
 )
 
-// These tests render the shipped templates with the handlers' real page structs,
-// so a renamed field fails here instead of at request time. No database is needed.
+// Render template dengan tipe halaman asli agar perubahan field terdeteksi tanpa database.
 func pageLayout(title, active string, canEdit bool) httpx.Layout {
 	return httpx.Layout{
 		Title: title, CSRF: "tok", Active: active,
@@ -29,7 +28,7 @@ func renderMigrationPage(t *testing.T, name string, page any) string {
 	if err := renderer.Render(w, httptest.NewRequest(http.MethodGet, "/", nil), 200, name, page); err != nil {
 		t.Fatalf("render %s: %v", name, err)
 	}
-	return strings.ReplaceAll(w.Body.String(), "\r", "") // template files may have CRLF endings on Windows
+	return strings.ReplaceAll(w.Body.String(), "\r", "") // Template di Windows dapat memakai CRLF.
 }
 
 func pageHas(t *testing.T, body string, present bool, parts ...string) {
@@ -63,7 +62,7 @@ func TestDraftPagesRender(t *testing.T) {
 
 	body = renderMigrationPage(t, "draft", DraftPage{Layout: pageLayout("t", "drafts", true), Draft: item, Conflict: true})
 	pageHas(t, body, true, "newer revision")
-	pageHas(t, body, false, `/drafts/d1/review"`) // CanReview false hides the review link
+	pageHas(t, body, false, `/drafts/d1/review"`) // CanReview false menyembunyikan link review.
 }
 
 func TestReviewPageRender(t *testing.T) {
@@ -73,7 +72,7 @@ func TestReviewPageRender(t *testing.T) {
 		`name="request_key" value="key-1"`, `name="_csrf" value="tok"`, "&lt;/pre&gt;&lt;script&gt;", "Execute saved revision")
 	pageHas(t, body, false, "<script>", "<i>t</i>")
 
-	// An uncertain outcome must never offer another execute, only ways to check the same key.
+	// Hasil yang belum pasti hanya menawarkan pemeriksaan key yang sama, tanpa tombol execute ulang.
 	body = renderMigrationPage(t, "review", ReviewPage{
 		Layout: pageLayout("Check migration request", "drafts", true), Draft: DraftItem{ID: "d1", Revision: "3"}, RequestKey: "key-1",
 		Error: "Request timed out.", Code: "REQUEST_TIMEOUT", RequestID: "req-9",
@@ -99,7 +98,7 @@ func TestHistoryPagesRender(t *testing.T) {
 
 	body := renderMigrationPage(t, "history", HistoryPage{Layout: pageLayout("History", "history", true), SearchKey: "k"})
 	pageHas(t, body, true, `method="get"`, `name="request_key" value="k"`, "has that request key")
-	if strings.Count(body, "_csrf") != 1 { // the header's logout form only
+	if strings.Count(body, "_csrf") != 1 { // Hanya form logout pada header.
 		t.Error("GET search form must not carry a CSRF field")
 	}
 	body = renderMigrationPage(t, "history", HistoryPage{Layout: pageLayout("History", "history", true),
@@ -109,7 +108,7 @@ func TestHistoryPagesRender(t *testing.T) {
 	body = attemptPage(item("unknown", func(a *AttemptItem) { a.FirstUnknownAt = "f" }))
 	pageHas(t, body, true, "stay blocked", "Marked unknown", "&lt;script&gt;")
 	pageHas(t, body, false, "/execute", "<script>", "Refresh status")
-	if strings.Count(body, "<form") != 1 { // the header's logout form only: no retry control
+	if strings.Count(body, "<form") != 1 { // Hanya form logout pada header; tanpa tombol retry.
 		t.Error("unknown attempt must not offer a form")
 	}
 

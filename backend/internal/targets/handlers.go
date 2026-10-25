@@ -34,15 +34,15 @@ type DatabasesPage struct {
 	Pager     Pager
 }
 
-// ConnectionForm deliberately has no password field. Templates must render an
-// empty password input, including after validation or revision errors.
+// ConnectionForm tidak menyimpan password. Input password selalu kosong, termasuk setelah error
+// validasi atau revision.
 type ConnectionForm struct {
 	Name, Host, Port, DatabaseName, Username, SSLMode, ExpectedRevision string
 	IsActive                                                            bool
 }
 
-// The pending admin templates consume these structs as admin_databases and
-// admin_database. Routes stay unmounted until both real templates are present.
+// Data ini dipakai template admin_databases dan admin_database. Route baru dipasang setelah kedua
+// template tersedia.
 type AdminDatabasesPage struct {
 	httpx.Layout
 	Databases   []Target
@@ -79,9 +79,8 @@ func NewHandler(provider *Provider, authorizer access.Authorizer, renderer *http
 	return &Handler{provider: provider, authorizer: authorizer, renderer: renderer}, nil
 }
 
-// Register always installs the user list. Admin forms and actions are installed
-// together so a mutation cannot run without its success/error page dependencies.
-// The return value reports whether the admin UI is available.
+// Register selalu memasang daftar user. Form dan aksi admin dipasang bersama agar mutasi memiliki
+// halaman sukses/error. Nilai hasil menunjukkan ketersediaan UI admin.
 func (h *Handler) Register(mux *http.ServeMux, middleware *auth.Middleware) bool {
 	mux.Handle("GET /databases", middleware.RequireSession(http.HandlerFunc(h.databases)))
 	if !h.renderer.HasTemplate("admin_databases") || !h.renderer.HasTemplate("admin_database") {
@@ -98,9 +97,8 @@ func (h *Handler) Register(mux *http.ServeMux, middleware *auth.Middleware) bool
 	return true
 }
 
-// layout reads only display metadata for the identity supplied by Brain's
-// middleware. Session/token validation and admin permission remain with auth
-// and Authorizer; neither client fields nor query parameters supply identity.
+// layout membaca metadata tampilan dari identitas middleware. Validasi session/token dan hak admin
+// tetap dilakukan oleh auth dan Authorizer, tanpa identitas dari client atau query.
 func (h *Handler) layout(r *http.Request, title, active string, admin bool) (httpx.Layout, access.Principal, error) {
 	state, ok := auth.SessionFromContext(r.Context())
 	principal, present := access.FromContext(r.Context())
@@ -298,7 +296,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, layout, err)
 		return
 	}
-	in, err := createInput(r.PostForm) // RequireCSRF has parsed once under the body limit.
+	in, err := createInput(r.PostForm) // RequireCSRF sudah membaca form sekali dengan batas ukuran.
 	if err != nil {
 		h.fail(w, r, layout, err)
 		return

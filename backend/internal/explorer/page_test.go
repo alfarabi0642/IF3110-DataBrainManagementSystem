@@ -73,7 +73,7 @@ func TestRowPageRenderLimit(t *testing.T) {
 			t.Fatal("NULL, literal text, empty string or escaped text lost in rendering")
 		}
 	}
-	// A wide page of NULLs has zero raw text bytes but can exceed the HTML cap.
+	// Banyak sel NULL tidak memakai byte teks mentah, tetapi tetap dapat melewati batas ukuran HTML.
 	columns, row := make([]string, 600), make([]Cell, 600)
 	for i := range columns {
 		columns[i], row[i] = "column", Cell{Null: true}

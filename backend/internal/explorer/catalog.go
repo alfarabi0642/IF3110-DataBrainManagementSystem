@@ -23,7 +23,7 @@ const (
 type Table struct {
 	Schema string
 	Name   string
-	Kind   string // r: ordinary table; p: partitioned table.
+	Kind   string // r: tabel biasa; p: tabel berpartisi.
 }
 
 type Column struct {
@@ -31,14 +31,14 @@ type Column struct {
 	Name      string
 	Type      string
 	Nullable  bool
-	Default   *string // nil means no default expression.
-	Identity  string  // PostgreSQL codes: a (always), d (by default), or empty.
-	Generated string  // PostgreSQL code: s (stored), or empty.
+	Default   *string // nil berarti tanpa ekspresi default.
+	Identity  string  // Kode PostgreSQL: a (always), d (by default), atau kosong.
+	Generated string  // Kode PostgreSQL: s (stored), atau kosong.
 }
 
 type Constraint struct {
 	Name       string
-	Kind       string // PostgreSQL contype code.
+	Kind       string // Kode contype PostgreSQL.
 	Columns    []string
 	Definition string
 }
@@ -52,8 +52,8 @@ type Index struct {
 	Definition string
 }
 
-// Catalog contains schemas, tables within a schema, or one table's metadata,
-// according to the selection. It contains no connection credentials or row data.
+// Catalog berisi schema, tabel, atau metadata satu tabel sesuai pilihan. Credential koneksi dan data
+// baris tidak disertakan.
 type Catalog struct {
 	Schemas     []string
 	Tables      []Table
@@ -71,8 +71,8 @@ func New(provider *targets.Provider) *Explorer {
 	return &Explorer{provider: provider}
 }
 
-// Catalog reads one selection in a dedicated read-only transaction. Empty schema
-// lists user schemas; empty table lists tables. Authorization belongs to callers.
+// Catalog membaca satu pilihan dalam transaksi khusus read-only. Schema kosong menampilkan schema
+// user; tabel kosong menampilkan daftar tabel. Pemanggil wajib mengotorisasi akses.
 func (e *Explorer) Catalog(ctx context.Context, targetID uuid.UUID, schema, table string) (Catalog, error) {
 	if targetID == uuid.Nil || (schema != "" && !validName(schema)) ||
 		(table != "" && (!validName(table) || schema == "")) {
@@ -93,7 +93,7 @@ func (e *Explorer) Catalog(ctx context.Context, targetID uuid.UUID, schema, tabl
 	return result, nil
 }
 
-// Both catalog and row reads own one bounded, dedicated read-only transaction.
+// Pembacaan katalog dan baris memakai transaksi khusus read-only dengan batas waktu.
 func (e *Explorer) read(ctx context.Context, targetID uuid.UUID, query func(context.Context, pgx.Tx) error) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -216,8 +216,8 @@ func resolveTable(ctx context.Context, tx pgx.Tx, schema, table string, oid *uin
 	    WHERE n.nspname=$1 AND c.relname=$2 AND c.relkind IN ('r','p') AND `+userSchemaSQL, schema, table).Scan(oid, kind)
 }
 
-// Resolve before locking, then verify the OID so a concurrent drop/recreate or
-// rename cannot silently select a replacement. ONLY avoids locking partitions.
+// Cari objek sebelum lock, lalu periksa ulang OID agar drop/recreate atau rename bersamaan tidak
+// memilih objek pengganti. ONLY menghindari lock partisi.
 func lockTable(ctx context.Context, tx pgx.Tx, schema, table string, oid uint32) error {
 	if _, err := tx.Exec(ctx, "LOCK TABLE ONLY "+pgx.Identifier{schema, table}.Sanitize()+" IN ACCESS SHARE MODE"); err != nil {
 		return err
@@ -233,8 +233,8 @@ func lockTable(ctx context.Context, tx pgx.Tx, schema, table string, oid uint32)
 	return nil
 }
 
-// Each metadata query measures definitions and its total on the target. On an
-// oversized result it sends only a NULL sentinel, never the original text.
+// Query metadata mengukur definisi dan total ukuran di target. Hasil terlalu besar hanya mengirim
+// penanda NULL, tanpa teks aslinya.
 func readColumns(ctx context.Context, tx pgx.Tx, oid uint32, remaining *int, result *Catalog) error {
 	rows, err := tx.Query(ctx, `WITH data AS MATERIALIZED (
 	    SELECT a.attnum::int AS ordinal,a.attname::text AS name,pg_catalog.format_type(a.atttypid,a.atttypmod) AS postgres_type,
@@ -257,7 +257,7 @@ func readColumns(ctx context.Context, tx pgx.Tx, oid uint32, remaining *int, res
 	for rows.Next() {
 		var column Column
 		var bytes int
-		// The sentinel has NULL fields; inspect it before scanning typed values.
+		// Periksa penanda NULL sebelum melakukan scan ke tipe konkret.
 		if rows.RawValues()[0] == nil {
 			return failure(problem.ResultTooLarge)
 		}

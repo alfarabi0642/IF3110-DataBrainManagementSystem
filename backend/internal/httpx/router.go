@@ -1,4 +1,4 @@
-// Package httpx provides the shared HTTP infrastructure.
+// Package httpx menyediakan infrastruktur HTTP bersama.
 package httpx
 
 import (
@@ -16,8 +16,8 @@ func NewRouter(ready func(context.Context) bool) *http.ServeMux {
 	return mux
 }
 
-// ErrorPages preserves ServeMux routing and Allow semantics while replacing
-// only its generated 404/405 text with the shared HTML error page.
+// ErrorPages mempertahankan routing dan header Allow ServeMux, lalu mengganti teks 404/405 bawaannya
+// dengan halaman error bersama.
 func ErrorPages(renderer *Renderer, mux *http.ServeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handler, pattern := mux.Handler(r)

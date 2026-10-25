@@ -17,8 +17,8 @@ const (
 	maxPageBytes = 512 << 10
 )
 
-// Cell preserves PostgreSQL's text output, including empty strings and numeric
-// precision. Null distinguishes SQL NULL from the text "null" or "".
+// Cell mempertahankan teks PostgreSQL, termasuk string kosong dan presisi angka. Null membedakan SQL
+// NULL dari teks "null" atau "".
 type Cell struct {
 	Null bool
 	Text string
@@ -28,14 +28,14 @@ type RowPage struct {
 	Table    Table
 	Columns  []string
 	Rows     [][]Cell
-	Ordering string // primary_key_asc or unspecified; no snapshot across requests.
+	Ordering string // primary_key_asc atau unspecified; tanpa snapshot antar-request.
 	Limit    int
 	Offset   int
 	HasMore  bool
 }
 
-// Page reads at most limit rows plus a lookahead used only for HasMore. Callers
-// must authorize the target first and render with httpx's bounded HTML renderer.
+// Page membaca maksimal limit baris dan satu baris tambahan untuk HasMore. Pemanggil wajib
+// mengotorisasi target dan memakai renderer HTML dengan batas ukuran.
 func (e *Explorer) Page(ctx context.Context, targetID uuid.UUID, schema, table string, limit, offset int) (RowPage, error) {
 	if targetID == uuid.Nil || !validName(schema) || !validName(table) || limit < 1 || limit > 200 || offset < 0 || offset > 100000 {
 		return RowPage{}, failure(problem.InvalidRequest)
@@ -98,7 +98,7 @@ func readPage(ctx context.Context, tx pgx.Tx, schema, table string, limit, offse
 		case string(problem.ResultTooLarge):
 			return RowPage{}, failure(problem.ResultTooLarge)
 		}
-		if position == 0 { // Empty page sentinel; a real all-NULL row has a position.
+		if position == 0 { // Penanda halaman kosong; baris berisi NULL tetap punya posisi.
 			continue
 		}
 		if len(values) != len(result.Columns) {
@@ -139,9 +139,9 @@ func primaryKey(ctx context.Context, tx pgx.Tx, oid uint32) ([]string, error) {
 	return keys, rows.Err()
 }
 
-// Only catalog identifiers enter this SQL, each quoted separately. Pagination
-// and limits are bound values. Text arrays preserve NULLs without JSON/number
-// conversions. MATERIALIZED keeps casts on the target until the budget passes.
+// Identifier hanya berasal dari katalog dan masing-masing dikutip. Pagination memakai parameter
+// terikat. Array teks mempertahankan NULL tanpa konversi JSON/angka. MATERIALIZED menahan cast di
+// target sampai batas ukuran lolos.
 func pageSQL(schema, table string, columns, keys []string) string {
 	casts := make([]string, len(columns))
 	for i, name := range columns {

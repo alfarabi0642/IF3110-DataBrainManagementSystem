@@ -120,7 +120,7 @@ func TestPlatformPoolSchemaAndLock(t *testing.T) {
 	if second, err := Open(ctx, runtimeURL); !errors.Is(err, ErrProcessLock) || second != nil {
 		t.Fatal("second independent server session acquired the process lock")
 	}
-	// Borrow all 10 connections; the dedicated lock remains independent of them.
+	// Pinjam seluruh 10 koneksi; koneksi lock khusus tetap terpisah.
 	for range 10 {
 		conn, err := Acquire(ctx, db.Pool)
 		if err != nil {
@@ -137,7 +137,7 @@ func TestPlatformPoolSchemaAndLock(t *testing.T) {
 	if conn, err := Acquire(short, db.Pool); err != ErrUnavailable || conn != nil {
 		t.Fatal("acquire ignored caller cancellation")
 	}
-	// PostgreSQL terminates only the dedicated connection owned by this test.
+	// PostgreSQL hanya memutus koneksi process lock milik test ini.
 	pid := db.lock.PgConn().PID()
 	var terminated bool
 	if err := owner.QueryRow(ctx, "SELECT pg_terminate_backend($1)", pid).Scan(&terminated); err != nil || !terminated {
@@ -190,7 +190,7 @@ func TestPlatformReadinessAndCleanup(t *testing.T) {
 	if queryErr == nil {
 		t.Fatal("database query ignored cancellation")
 	}
-	// Close has a bounded wait even if a consumer temporarily retains a lease.
+	// Close tetap memiliki batas waktu saat koneksi sementara masih dipinjam.
 	lease, err := Acquire(ctx, db.Pool)
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +205,7 @@ func TestPlatformReadinessAndCleanup(t *testing.T) {
 	if db.Ready(ctx) {
 		t.Fatal("closed platform reported ready")
 	}
-	// A new owner can acquire after the first pool and dedicated connection close.
+	// Owner baru dapat mengambil lock setelah pool dan koneksi khusus sebelumnya ditutup.
 	reopened, err := Open(ctx, runtimeURL)
 	if err != nil {
 		t.Fatal("shutdown leaked the process lock")

@@ -26,7 +26,7 @@ import (
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	if err := run(logger); err != nil {
-		// Config errors name only the field/rule; network errors stay private.
+		// Pesan konfigurasi hanya menyebut field dan aturan; detail jaringan tetap privat.
 		logger.Error("HTTP server stopped", "code", "HTTP_SERVER_FAILED")
 		os.Exit(1)
 	}
@@ -199,8 +199,8 @@ func newServer(cfg config.Config, handler http.Handler) *http.Server {
 }
 
 func serveHTTP(ctx context.Context, server *http.Server, listener net.Listener, lockLost <-chan struct{}) error {
-	// Signal cancellation starts draining; active requests retain their context
-	// until they finish or the shutdown deadline forces connections closed.
+	// Penghentian server menunggu request aktif selesai. Context request tetap hidup sampai selesai atau
+	// batas shutdown menutup koneksi.
 	requests, cancelRequests := context.WithCancel(context.Background())
 	defer cancelRequests()
 	server.BaseContext = func(net.Listener) context.Context { return requests }
@@ -217,7 +217,7 @@ func serveHTTP(ctx context.Context, server *http.Server, listener net.Listener, 
 		<-stopped
 		return platformdb.ErrLockLost
 	case <-ctx.Done():
-		// Lock loss remains fatal while an ordinary shutdown is draining.
+		// Hilangnya process lock tetap fatal selama server menunggu request selesai.
 		watchDone := make(chan struct{})
 		defer close(watchDone)
 		go func() {

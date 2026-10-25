@@ -55,8 +55,8 @@ func TestMissingSecretKeyHasNoDefault(t *testing.T) {
 	if key, err := LoadSecretKey(); err == nil || key != nil {
 		t.Fatal("missing root key must fail without a default")
 	}
-	// HTTP/platform foundations do not require the key before a secret consumer
-	// is installed. Migration configuration also remains independent.
+	// Konfigurasi dasar HTTP/platform dan migration dapat dibaca tanpa kunci; auth dan target
+	// memerlukannya saat dipasang.
 	if _, err := load(func(string) (string, bool) { return "", false }); err != nil {
 		t.Fatal("HTTP config unexpectedly requires a secret key")
 	}

@@ -42,8 +42,8 @@ func NormalizeDisplayName(displayName string) (string, error) {
 	return displayName, nil
 }
 
-// BootstrapAdmin creates the first active platform admin. The password is
-// hashed before the transaction acquires the global security lock.
+// BootstrapAdmin membuat admin aktif pertama. Hash password dihitung sebelum transaksi mengunci
+// security_guard.
 func BootstrapAdmin(ctx context.Context, pool *pgxpool.Pool, username, displayName, password string) (uuid.UUID, error) {
 	if err := ValidateUsername(username); err != nil {
 		return uuid.Nil, ErrInvalidUsername

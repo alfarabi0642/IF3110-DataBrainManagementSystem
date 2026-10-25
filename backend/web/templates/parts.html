@@ -1,5 +1,5 @@
-{{/* Small pieces shared by several pages. */}}
-{{/* pager: data has Prev and Next, both link strings built by the server; empty hides the link. */}}
+{{/* Bagian tampilan yang dipakai bersama. */}}
+{{/* pager memakai link Prev dan Next buatan server; nilai kosong menyembunyikan link. */}}
 {{define "pager"}}{{if .}}{{if or .Prev .Next}}
 <nav class="pager" aria-label="Pages">
   {{with .Prev}}<a href="{{.}}" rel="prev">Previous</a>{{end}}
@@ -7,15 +7,15 @@
 </nav>
 {{end}}{{end}}{{end}}
 
-{{/* state: one of reserved, running, succeeded, failed, unknown. */}}
+{{/* state menerima reserved, running, succeeded, failed, atau unknown. */}}
 {{define "state"}}<span class="badge {{.}}">{{.}}</span>{{end}}
 
-{{/* cell: a table cell value with Null bool and Text string. NULL, "null" and "" look different. */}}
+{{/* cell membedakan SQL NULL, teks "null", dan string kosong. */}}
 {{define "cell"}}{{if .Null}}<span class="null">NULL</span>{{else if eq .Text ""}}<span class="empty-string">(empty)</span>{{else}}{{.Text}}{{end}}{{end}}
 
 {{define "yesno"}}{{if .}}yes{{else}}no{{end}}{{end}}
 
-{{/* sslmode: the SSL mode select for a connection form; data has SSLMode (verify-full or disable). */}}
+{{/* sslmode memilih verify-full atau disable dari data form. */}}
 {{define "sslmode"}}<select id="ssl_mode" name="ssl_mode">
   <option value="verify-full"{{if ne .SSLMode "disable"}} selected{{end}}>verify-full (verifies the server certificate)</option>
   <option value="disable"{{if eq .SSLMode "disable"}} selected{{end}}>disable (no encryption, development only)</option>

@@ -1,15 +1,6 @@
-/* ==========================================================================
-   DataBrain — "Quiet Ledger"
-   One stylesheet for the whole server-rendered UI.
+/* DataBrain: gaya bersama untuk seluruh halaman server. */
 
-   Idea: warm paper, ink, and a single International-Klein-ish blue.
-   Editorial serif headlines, a crisp grotesk for UI, and mono as the
-   "data voice" (table heads, labels, codes). Hairlines instead of boxes,
-   auto-numbered sections, a dark ink SQL surface, and cross-document
-   view transitions so plain page loads feel like an app. No JS required.
-   ========================================================================== */
-
-/* ---------- Fonts (self-hosted, SIL OFL; no third-party requests) ---------- */
+/* Font lokal berlisensi SIL OFL, tanpa request pihak ketiga. */
 @font-face {
   font-family: "Geist"; font-style: normal; font-weight: 300 700; font-display: swap;
   src: url("/static/fonts/geist.woff2") format("woff2");
@@ -27,7 +18,7 @@
   src: url("/static/fonts/instrument-serif-italic.woff2") format("woff2");
 }
 
-/* ---------- Tokens ---------- */
+/* Variabel tema. */
 :root {
   color-scheme: light dark;
 
@@ -52,7 +43,7 @@
   --wait: #a86a06;
   --idle: #8e897f;
 
-  /* The SQL surface stays dark in both themes. */
+  /* Area SQL tetap gelap pada kedua tema. */
   --code-bg: #141412;
   --code-ink: #e9e6dc;
   --code-dim: #77736a;
@@ -80,7 +71,7 @@
   --ease: cubic-bezier(.2, .7, .2, 1);
   --rail: 17rem;
 
-  /* Icons as masks so they inherit currentColor. */
+  /* Mask ikon mengikuti currentColor. */
   --i-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M13 6l6 6-6 6'/%3E%3C/svg%3E");
   --i-arrow-left: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 12H5M11 6l-6 6 6 6'/%3E%3C/svg%3E");
   --i-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238e897f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
@@ -124,7 +115,7 @@
   }
 }
 
-/* ---------- Base ---------- */
+/* Gaya dasar. */
 *, *::before, *::after { box-sizing: border-box; }
 html { font-size: 100%; -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; }
 body {
@@ -160,7 +151,7 @@ p { max-width: 70ch; text-wrap: pretty; }
 code { font-family: var(--mono); font-size: .86em; padding: .12em .42em; border-radius: 6px; background: var(--hover); border: 1px solid var(--line-soft); overflow-wrap: anywhere; }
 td code, dd code { background: transparent; border: 0; padding: 0; color: var(--ink-2); }
 
-/* ---------- Shell: left rail + content ---------- */
+/* Rail kiri dan konten. */
 .app .shell {
   display: grid;
   grid-template-columns: var(--rail) minmax(0, 1fr);
@@ -176,7 +167,7 @@ td code, dd code { background: transparent; border: 0; padding: 0; color: var(--
   view-transition-name: rail;
 }
 
-/* Brand: an ink planet with a blue moon, and a two-voice wordmark. */
+/* Logo dan nama aplikasi. */
 .brand {
   display: inline-flex; align-items: center; gap: .7rem;
   padding: 0 .55rem; color: var(--ink); text-decoration: none;
@@ -225,7 +216,7 @@ td code, dd code { background: transparent; border: 0; padding: 0; color: var(--
   content: ""; margin-left: auto; width: .4rem; height: .4rem; border-radius: 50%; background: var(--accent);
 }
 
-/* Database context: a small card with a "branch" of links. */
+/* Konteks database dan navigasinya. */
 .dbnav {
   display: flex; flex-direction: column; gap: .1rem;
   padding: 1rem .55rem .6rem; border-radius: var(--r-lg);
@@ -245,7 +236,7 @@ td code, dd code { background: transparent; border: 0; padding: 0; color: var(--
 .dbnav a:not([aria-current="page"]) { border-left: 1px solid var(--line-strong); border-radius: 0 10px 10px 0; }
 .dbnav a[aria-current="page"] { border-left: 1px solid transparent; }
 
-/* Account: avatar initial is the display name's first letter (CSS only). */
+/* Avatar memakai huruf pertama display name melalui CSS. */
 .account {
   margin-top: auto; display: flex; align-items: center; gap: .7rem;
   padding: .8rem .55rem 0; border-top: 1px solid var(--line);
@@ -262,12 +253,12 @@ td code, dd code { background: transparent; border: 0; padding: 0; color: var(--
 .who .muted { font: 400 .75rem/1.3 var(--mono); }
 .account button.quiet { font-size: .78rem; padding: .35rem .55rem; }
 
-/* ---------- Content column ---------- */
+/* Kolom konten. */
 main {
   min-width: 0;
   padding: 0 clamp(1.25rem, 4.5vw, 4.5rem) 6rem;
   counter-reset: sec;
-  /* A dot-grid "graph paper" that fades out below the masthead. */
+  /* Pola titik memudar di bawah judul. */
   background-image:
     linear-gradient(to bottom, transparent 0, var(--bg) 17rem),
     radial-gradient(var(--dot) 1px, transparent 1.25px);
@@ -295,7 +286,7 @@ h1 {
 }
 h1::after { content: "."; content: "." / ""; color: var(--accent); }
 
-/* Auto-numbered section headings with a trailing hairline. */
+/* Judul bagian dengan nomor otomatis. */
 main h2 {
   display: flex; align-items: baseline; gap: .9rem;
   margin: 3.5rem 0 1.25rem;
@@ -311,7 +302,7 @@ main h2::after { content: ""; flex: 1 1 2rem; height: 1px; background: var(--lin
 
 .page-intro { margin: -1rem 0 2.25rem; font-size: 1.1rem; line-height: 1.55; color: var(--ink-2); max-width: 58ch; }
 
-/* ---------- Panels & forms ---------- */
+/* Panel dan form. */
 form { margin: 0 0 1.5rem; }
 .panel {
   max-width: 40rem;
@@ -357,7 +348,7 @@ input[type="number"] { font-family: var(--mono); font-size: .9rem; }
 p.muted.form-help { margin: 0 0 .75rem; font-family: var(--mono); font-size: .74rem; }
 form > p.muted { font-size: .82rem; margin: .5rem 0 0; }
 
-/* "Document title" field on the SQL draft pages. */
+/* Judul dokumen pada halaman draft. */
 input#title {
   max-width: none; padding: .3rem 0 .55rem;
   font: 400 clamp(1.6rem, 1.2rem + 1.2vw, 2.2rem)/1.2 var(--serif); letter-spacing: -.01em;
@@ -365,7 +356,7 @@ input#title {
 }
 input#title:focus { box-shadow: none; border-bottom-color: var(--accent); }
 
-/* SQL editor (no JS: a dark textarea; with JS: wrapped with a gutter and status line). */
+/* Editor: textarea tanpa JS; nomor baris dan status ditambahkan oleh JS. */
 textarea, .sql { font-family: var(--mono); }
 textarea {
   display: block; max-width: none; min-height: 22rem; resize: vertical; tab-size: 4;
@@ -414,7 +405,7 @@ textarea:focus { border-color: var(--code-kw); box-shadow: var(--shadow-md), 0 0
   font: inherit; padding: .05rem .35rem; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 5px; color: var(--ink-2);
 }
 
-/* ---------- Buttons ---------- */
+/* Tombol. */
 button, .button {
   display: inline-flex; align-items: center; justify-content: center; gap: .65rem;
   margin-top: 1.6rem; padding: .82rem 1.25rem .82rem 1.35rem;
@@ -446,7 +437,7 @@ button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
 button.danger-text { color: var(--bad); }
 button.danger-text:hover { color: var(--bad); background: color-mix(in oklab, var(--bad) 9%, transparent); border-color: color-mix(in oklab, var(--bad) 25%, transparent); }
 
-/* ---------- Tables ---------- */
+/* Tabel. */
 .table-wrap {
   overflow-x: auto; margin-bottom: 1.25rem;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
@@ -477,7 +468,7 @@ td.cell { font-family: var(--mono); font-size: .82rem; white-space: pre-wrap; co
 .empty-string { color: var(--ink-3); font-style: italic; }
 caption { text-align: left; }
 
-/* ---------- Pre / SQL ---------- */
+/* Tampilan SQL. */
 pre {
   position: relative; margin: 0 0 1.5rem;
   padding: 3rem 1.4rem 1.3rem;
@@ -499,7 +490,7 @@ pre::before {
 .tok-num { color: var(--code-num); }
 .tok-com { color: var(--code-com); font-style: italic; }
 
-/* ---------- Status & badges ---------- */
+/* Status dan badge. */
 .status {
   --state: var(--idle);
   position: relative; max-width: 70ch; margin: 0 0 1.5rem;
@@ -541,7 +532,7 @@ pre::before {
   70%, 100% { box-shadow: 0 0 0 .45rem transparent; }
 }
 
-/* ---------- Definition "spec sheet" ---------- */
+/* Daftar metadata. */
 .meta {
   display: grid; grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr);
   max-width: 50rem; margin: 0 0 1.5rem;
@@ -556,7 +547,7 @@ pre::before {
 .meta dd { margin: 0; overflow-wrap: anywhere; }
 .meta dt:last-of-type, .meta dd:last-of-type { border-bottom: 0; }
 
-/* ---------- Navigation helpers ---------- */
+/* Navigasi tambahan. */
 .pager { display: flex; gap: .6rem; margin: 1.25rem 0; }
 .pager a {
   display: inline-flex; align-items: center; gap: .5rem;
@@ -590,7 +581,7 @@ pre::before {
 .tabs a:hover { color: var(--ink); background: var(--hover); }
 .tabs a[aria-current="page"] { background: var(--ink); color: var(--bg); }
 
-/* Schema & table tiles in the explorer. */
+/* Kartu schema dan tabel explorer. */
 ul.plain { padding-left: 1.25rem; }
 ul.tiles {
   list-style: none; padding: 0; margin: 0 0 1.5rem;
@@ -604,7 +595,7 @@ ul.tiles a {
   transition: transform .3s var(--ease), border-color .3s var(--ease), box-shadow .3s var(--ease);
 }
 ul.tiles a::before {
-  /* Blue rounded square with the glyph knocked out of it. */
+  /* Ikon dengan latar biru. */
   content: ""; flex: none; width: 2.1rem; height: 2.1rem; border-radius: 10px;
   background: var(--accent); opacity: .92;
   -webkit-mask: var(--i-schema) center / 1.15rem no-repeat, linear-gradient(#000 0 0);
@@ -627,7 +618,7 @@ ul.tiles a:hover {
 }
 ul.tiles a:hover::after { opacity: 1; transform: translateX(3px); color: var(--accent); }
 
-/* ---------- Databases: cards instead of a table ---------- */
+/* Kartu database. */
 .db-grid {
   list-style: none; padding: 0; margin: 0 0 1.5rem;
   display: grid; grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr)); gap: 1rem;
@@ -642,7 +633,7 @@ ul.tiles a:hover::after { opacity: 1; transform: translateX(3px); color: var(--a
   overflow: hidden;
 }
 .db-card::after {
-  /* Soft blue glow that wakes up on hover. */
+  /* Sorotan biru saat hover. */
   content: ""; position: absolute; inset: auto -30% -60% auto; width: 70%; aspect-ratio: 1; border-radius: 50%;
   background: radial-gradient(circle, var(--ring), transparent 65%);
   opacity: 0; transition: opacity .5s var(--ease); pointer-events: none;
@@ -689,14 +680,14 @@ main .db-card h2.db-name::before, main .db-card h2.db-name::after { content: non
 .db-links a:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .db-links a:hover::after { opacity: 1; }
 
-/* ---------- Page-specific touches ---------- */
-/* History search: label above, input and button side by side. */
+/* Gaya khusus halaman. */
+/* Pencarian history: input dan tombol sejajar. */
 .searchbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .6rem; max-width: 46rem; margin-bottom: 2rem; }
 .searchbar label { flex-basis: 100%; margin: 0; }
 .searchbar input { flex: 1 1 18rem; max-width: none; font-family: var(--mono); font-size: .88rem; }
 .searchbar button { margin: 0; }
 
-/* Draft editor page. */
+/* Halaman editor draft. */
 .draft-meta {
   display: inline-flex; flex-wrap: wrap; gap: .35rem .9rem; align-items: center;
   margin: -1rem 0 1.25rem; padding: .45rem .85rem; border-radius: 999px;
@@ -721,7 +712,7 @@ main .db-card h2.db-name::before, main .db-card h2.db-name::after { content: non
 .back a:hover { color: var(--accent); }
 .back a:hover::before { transform: translateX(-3px); }
 
-/* Review: the transaction promise reads like a seal. */
+/* Callout transaksi pada review. */
 .callout {
   display: flex; gap: .9rem; align-items: flex-start; max-width: 50rem;
   padding: 1rem 1.15rem; margin: 0 0 1rem;
@@ -735,7 +726,7 @@ main .db-card h2.db-name::before, main .db-card h2.db-name::after { content: non
 }
 button.execute { padding: 1rem 1.6rem 1rem 1.7rem; font-size: .95rem; }
 
-/* Attempt: a large verdict with a state ring. */
+/* Hasil attempt dengan indikator status. */
 .verdict {
   --state: var(--idle);
   display: flex; align-items: center; gap: 1.1rem; margin: -.5rem 0 1.4rem;
@@ -762,7 +753,7 @@ button.execute { padding: 1rem 1.6rem 1rem 1.7rem; font-size: .95rem; }
 .verdict-word { font: italic 400 2.6rem/1 var(--serif); letter-spacing: -.02em; color: var(--state); }
 @keyframes spin { to { transform: rotate(1turn); } }
 
-/* ---------- Guest pages (login, signed-out errors) ---------- */
+/* Halaman tamu dan login. */
 .guest .shell { min-height: 100vh; }
 .guest .topbar {
   position: absolute; top: 0; left: 0; z-index: 5;
@@ -774,7 +765,7 @@ button.execute { padding: 1rem 1.6rem 1rem 1.7rem; font-size: .95rem; }
 }
 .guest main .masthead { border-bottom: 0; padding: 0; margin-bottom: 2rem; }
 
-/* Login: an ink stage with a dot-matrix sphere and a blue radar sweep. */
+/* Latar dekoratif login. */
 .guest main:has(.stage) {
   max-width: none; margin: 0; padding: 0; min-height: 100vh;
   display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
@@ -802,7 +793,7 @@ button.execute { padding: 1rem 1.6rem 1rem 1.7rem; font-size: .95rem; }
   mask: radial-gradient(circle, #000 0 38%, transparent 70%);
 }
 .stage-art::before {
-  /* The sweep: only lights the dots it passes over. */
+  /* Animasi sorotan titik. */
   content: ""; position: absolute; inset: 0; border-radius: 50%;
   background: conic-gradient(from 0deg, transparent 0 62%, color-mix(in oklab, var(--accent) 40%, transparent) 88%, var(--accent) 100%);
   -webkit-mask: radial-gradient(#000 1.6px, transparent 2px) 0 0 / 15px 15px;
@@ -838,7 +829,7 @@ button.execute { padding: 1rem 1.6rem 1rem 1.7rem; font-size: .95rem; }
 .auth-panel form:last-child { margin-bottom: 0; }
 .auth-panel button[type="submit"]:not(.quiet) { width: 100%; justify-content: space-between; padding-left: 1.4rem; padding-right: 1.25rem; }
 
-/* ---------- Motion ---------- */
+/* Animasi. */
 @view-transition { navigation: auto; }
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .32s; animation-timing-function: var(--ease); }
 ::view-transition-group(title) { animation-duration: .38s; animation-timing-function: var(--ease); }
@@ -861,7 +852,7 @@ main > :nth-child(n+6) { animation-delay: .2s; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 
-/* ---------- Responsive ---------- */
+/* Layout responsif. */
 @media (max-width: 64rem) {
   .app .shell { display: block; }
   .app .topbar {

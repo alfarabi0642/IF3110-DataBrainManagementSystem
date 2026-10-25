@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ExecutionFailure contains only fixed public messages and bounded diagnostics.
-// Driver errors and SQL bodies must never be stored in it.
+// ExecutionFailure hanya berisi pesan publik tetap dan diagnostic terbatas. Error driver dan body SQL
+// tidak boleh disimpan di sini.
 type ExecutionFailure struct {
 	Code, Message, SQLState string
 	StatementIndex          int
@@ -87,8 +87,8 @@ func nullableText(value string) any {
 	return value
 }
 
-// persistOutcome locks the stream before the attempt, matching reservation.
-// It never resolves an unknown attempt or changes an existing terminal result.
+// persistOutcome mengunci stream sebelum attempt, sama seperti reservasi. Fungsi ini tidak
+// menyelesaikan unknown atau mengubah hasil terminal yang sudah ada.
 func (s *AttemptStore) persistOutcome(ctx context.Context, r AttemptReceipt, outcome attemptOutcome) (AttemptReceipt, error) {
 	lease, err := platformdb.Acquire(ctx, s.pool)
 	if err != nil {
@@ -110,7 +110,7 @@ func (s *AttemptStore) persistOutcome(ctx context.Context, r AttemptReceipt, out
 		return r, attemptFailure(problem.PlatformUnavailable)
 	}
 	if stored.State == "succeeded" || stored.State == "failed" || stored.State == "unknown" {
-		return *stored, nil // Also provides proof after a lost outcome acknowledgment.
+		return *stored, nil // Juga membuktikan hasil setelah acknowledgement hilang.
 	}
 	if !active {
 		return r, attemptFailure(problem.PlatformUnavailable)
@@ -136,8 +136,8 @@ func (s *AttemptStore) persistOutcome(ctx context.Context, r AttemptReceipt, out
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		// Do not reuse a connection with an inconclusive COMMIT. The caller's
-		// next bounded persistence/read can discover the committed result.
+		// Jangan memakai ulang koneksi dengan COMMIT yang belum pasti. Pembacaan atau penyimpanan berikutnya
+		// dapat menemukan hasil lewat koneksi baru.
 		_ = lease.Hijack().Close(ctx)
 		return r, attemptFailure(problem.PlatformUnavailable)
 	}
@@ -145,8 +145,8 @@ func (s *AttemptStore) persistOutcome(ctx context.Context, r AttemptReceipt, out
 	return r, nil
 }
 
-// A fresh context permits bounded outcome persistence after request cancellation.
-// All cleanup still fits inside the runner's overall 65-second ceiling.
+// Context baru memberi waktu terbatas untuk menyimpan hasil setelah request dibatalkan. Seluruh
+// cleanup tetap masuk batas total runner 65 detik.
 func cleanupExecutionContext(end time.Time, maximum time.Duration) (context.Context, context.CancelFunc) {
 	deadline := time.Now().Add(maximum)
 	if end.Before(deadline) {
@@ -162,9 +162,8 @@ func (s *AttemptStore) finishExecution(r AttemptReceipt, outcome attemptOutcome,
 	if err == nil {
 		return stored, nil
 	}
-	// A target commit acknowledgment alone is insufficient if its outcome was
-	// not durably recorded. Keep this stream blocked unless a terminal result
-	// is already visible; no SQL or terminal mutation is retried here.
+	// Acknowledgement COMMIT target belum cukup jika hasilnya belum tersimpan permanen. Stream tetap
+	// diblokir sampai hasil terminal terlihat; SQL dan mutasi terminal tidak diulang di sini.
 	stored, err = s.persistOutcome(ctx, r, uncertain("OUTCOME_PERSISTENCE_FAILED", "The execution outcome could not be recorded."))
 	if err == nil {
 		return stored, nil

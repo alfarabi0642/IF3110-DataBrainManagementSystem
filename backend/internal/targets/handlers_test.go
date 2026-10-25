@@ -58,8 +58,8 @@ func TestHandlerInputAndPagination(t *testing.T) {
 	}
 }
 
-// Admin templates are an external dependency. Capture their typed data without
-// inventing markup; all auth, guards, queries, mutations and user HTML are real.
+// Tangkap data bertipe milik template admin tanpa membuat markup tiruan. Auth, guard, query, mutasi,
+// dan HTML pengguna tetap memakai implementasi asli.
 type captureAdminPages struct {
 	*httpx.Renderer
 	page any
@@ -90,7 +90,8 @@ func seedHandlerSession(t *testing.T, f targetFixture, service *auth.Service, us
 	if err != nil {
 		t.Fatal("cannot seed handler session token")
 	}
-	// Seed only this isolated database. There is no application login handler yet.
+	// Session fixture dibuat langsung hanya pada database terisolasi agar test tidak bergantung pada alur
+	// login.
 	if _, err := f.p.pool.Exec(ctx, `UPDATE databrain.sessions SET kind='authenticated',user_id=$2,security_version=1 WHERE id=$1`, state.ID, user); err != nil {
 		t.Fatal("cannot seed authenticated handler session")
 	}
@@ -101,7 +102,7 @@ func seedHandlerSession(t *testing.T, f targetFixture, service *auth.Service, us
 }
 
 func TestDatabaseHandlers(t *testing.T) {
-	f := fixture(t) // Verifies owner, path and system identifier before mutation.
+	f := fixture(t) // Periksa owner, path, dan identitas fixture sebelum mutasi.
 	ctx := context.Background()
 	renderer, err := httpx.LoadTemplates("../../web/templates")
 	if err != nil {

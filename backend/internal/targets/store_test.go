@@ -262,7 +262,7 @@ func TestTargetStoreAndConnections(t *testing.T) {
 		if err := migration.QueryRow(ctx, "SELECT current_setting('application_name'),current_setting('default_transaction_read_only')").Scan(&application, &readonly); err != nil || application != "databrain:"+attempt.String() || readonly != "off" {
 			t.Fatal("migration connection metadata or write policy is wrong")
 		}
-		// A rollback proves target write capability without leaving fixture data.
+		// Rollback membuktikan kemampuan tulis target tanpa meninggalkan data fixture.
 		tx, err := migration.Begin(ctx)
 		if err != nil {
 			t.Fatal("cannot begin target verification transaction")
@@ -477,8 +477,8 @@ func TestTargetStoreAndConnections(t *testing.T) {
 		if result.Reason != Timeout {
 			t.Fatal("probe cancellation ignored")
 		}
-		// A real TCP peer that never speaks PostgreSQL must still respect a
-		// shorter caller deadline during connection establishment.
+		// Peer TCP yang tidak menjawab protokol PostgreSQL tetap harus mematuhi deadline koneksi dari
+		// pemanggil.
 		stalled, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal("cannot open stalled peer fixture")
@@ -581,7 +581,7 @@ func TestTargetStoreAndConnections(t *testing.T) {
 		}
 	})
 
-	// No test connection should remain on either target, including failed probes.
+	// Tidak boleh ada koneksi test tertinggal pada kedua target, termasuk dari probe gagal.
 	waitSlots(t, p.explorer, 0)
 	waitSlots(t, p.migration, 0)
 	var active int

@@ -1,6 +1,4 @@
-// DataBrain progressive enhancements.
-// Every page works fully without this file. Nothing here talks to the server,
-// and all text is inserted as text nodes (never innerHTML).
+// Enhancement DataBrain. Alur inti tetap bekerja tanpa JavaScript. Teks disisipkan sebagai text node, tanpa innerHTML.
 (() => {
   "use strict";
 
@@ -12,10 +10,7 @@
     return node;
   };
 
-  // ---------------------------------------------------------------- SQL editor
-  // Adds a title bar, a line-number gutter, a caret status line, Tab indentation
-  // (press Esc first to Tab out of the editor), Ctrl/Cmd+S to save, and an
-  // unsaved-changes guard.
+  // Editor menambah nomor baris, posisi caret, indentasi Tab, Ctrl/Cmd+S, dan guard perubahan SQL. Tekan Escape lalu Tab untuk keluar editor.
   function setupEditor(area) {
     const wrap = el("div", "editor");
     const bar = el("div", "editor-bar");
@@ -58,7 +53,7 @@
 
     const insert = (text) => {
       area.focus();
-      // execCommand keeps the native undo stack; fall back if unsupported.
+      // execCommand mempertahankan undo bawaan; gunakan fallback jika tidak didukung.
       if (!document.execCommand || !document.execCommand("insertText", false, text)) {
         area.setRangeText(text, area.selectionStart, area.selectionEnd, "end");
         area.dispatchEvent(new Event("input", { bubbles: true }));
@@ -85,7 +80,7 @@
     render();
   }
 
-  // ------------------------------------------------------- SQL highlighting
+  // Pewarnaan SQL hanya mengubah tampilan.
   const KEYWORDS = new Set((
     "add all alter and as asc begin between by cascade case check column comment commit constraint create cross " +
     "default deferrable delete desc distinct do drop else end exists extension false foreign from full function " +

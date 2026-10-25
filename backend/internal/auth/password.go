@@ -18,7 +18,7 @@ const (
 	passwordHashLength = len(passwordHashPrefix) + 22 + 1 + 43
 	passwordHashWait   = 2 * time.Second
 
-	// This public dummy fixture is never used to create an account.
+	// Hash dummy publik ini tidak pernah dipakai untuk membuat akun.
 	dummyPasswordHash = passwordHashPrefix + "RGF0YUJyYWluRHVtbXlWMQ$mfe1mmxSlxTPDUyj41pvXKo1DpF5T3Zfvxc1vhVsyAw"
 )
 
@@ -27,11 +27,11 @@ var (
 	ErrInvalidPasswordHash = errors.New("invalid or unsupported password hash")
 	ErrPasswordHashBusy    = errors.New("password hashing capacity unavailable")
 
-	// All callers share the process-wide limit, including verification and dummy work.
+	// Semua pemanggil berbagi batas proses yang sama, termasuk verifikasi dan pekerjaan dummy.
 	passwordHashSlots = make(chan struct{}, 2)
 )
 
-// ValidatePassword checks bytes without trimming, normalizing, or truncating input.
+// ValidatePassword memeriksa byte tanpa trim, normalisasi, atau pemotongan.
 func ValidatePassword(password string) error {
 	if len(password) < 12 || len(password) > 128 || !utf8.ValidString(password) {
 		return ErrInvalidPassword
@@ -39,7 +39,7 @@ func ValidatePassword(password string) error {
 	return nil
 }
 
-// HashPassword uses the fixed M1 Argon2id policy and a fresh random salt.
+// HashPassword memakai kebijakan Argon2id M1 dan salt acak baru.
 func HashPassword(ctx context.Context, password string) (string, error) {
 	if err := ValidatePassword(password); err != nil {
 		return "", err
@@ -58,7 +58,7 @@ func HashPassword(ctx context.Context, password string) (string, error) {
 	return passwordHashPrefix + base64.RawStdEncoding.EncodeToString(salt) + "$" + base64.RawStdEncoding.EncodeToString(key), nil
 }
 
-// VerifyPassword distinguishes a mismatch (false, nil) from invalid data or capacity errors.
+// VerifyPassword membedakan password tidak cocok (false, nil) dari hash rusak atau kapasitas penuh.
 func VerifyPassword(ctx context.Context, password, encoded string) (bool, error) {
 	if err := ValidatePassword(password); err != nil {
 		return false, err
@@ -74,15 +74,15 @@ func VerifyPassword(ctx context.Context, password, encoded string) (bool, error)
 	return subtle.ConstantTimeCompare(key, expected) == 1, nil
 }
 
-// CheckDummyPassword performs normal verification work for missing/inactive users.
-// A nil error means the work completed; the login caller must still reject credentials.
+// CheckDummyPassword menjalankan verifikasi biasa untuk user hilang/nonaktif. Error nil hanya berarti
+// pekerjaan selesai; login tetap harus menolak credential.
 func CheckDummyPassword(ctx context.Context, password string) error {
 	_, err := VerifyPassword(ctx, password, dummyPasswordHash)
 	return err
 }
 
 func parsePasswordHash(encoded string) ([]byte, []byte, error) {
-	// Only the fixed M1 format is supported; reject costs before any Argon2 allocation.
+	// Tolak format dan biaya hash yang tidak didukung sebelum alokasi Argon2.
 	if len(encoded) != passwordHashLength || !strings.HasPrefix(encoded, passwordHashPrefix) || strings.ContainsAny(encoded, "\r\n") {
 		return nil, nil, ErrInvalidPasswordHash
 	}
@@ -122,7 +122,7 @@ func derivePasswordKey(ctx context.Context, password string, salt []byte) ([]byt
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	// IDKey cannot be interrupted; keep the slot until it returns even if canceled.
+	// IDKey tidak dapat dibatalkan; slot ditahan sampai selesai meski context dibatalkan.
 	key := argon2.IDKey([]byte(password), salt, 3, 65536, 2, 32)
 	if err := ctx.Err(); err != nil {
 		return nil, err

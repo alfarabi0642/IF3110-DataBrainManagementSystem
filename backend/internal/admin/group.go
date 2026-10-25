@@ -39,9 +39,8 @@ func (s *Service) Group(ctx context.Context, actor access.Principal, groupID uui
 	return group, nil
 }
 
-// GroupDetails returns the complete bounded aggregate used by the group page.
-// M1 caps the platform at 1000 users and 100 groups, so detail routes do not
-// silently paginate security relationships that the administrator must see.
+// GroupDetails memuat seluruh relasi untuk halaman group. Batas 1.000 user dan 100 group memungkinkan
+// admin melihat relasi keamanan tanpa pagination tersembunyi.
 func (s *Service) GroupDetails(ctx context.Context, actor access.Principal, groupID uuid.UUID) (GroupItem, []MemberItem, []MemberItem, []GrantItem, []DatabaseChoice, error) {
 	group, err := s.Group(ctx, actor, groupID)
 	if err != nil {
@@ -133,8 +132,8 @@ func collectMembers(ctx context.Context, db rowQuerier, query string, args ...an
 	return items, nil
 }
 
-// EditGroup returns true when changing the group's status also invalidated the
-// acting admin's family. Name-only and identical edits do not touch sessions.
+// EditGroup mengembalikan true jika perubahan status mencabut family admin yang bertindak. Perubahan
+// nama dan nilai identik tidak mengubah session.
 func (s *Service) EditGroup(ctx context.Context, actor access.Principal, groupID uuid.UUID, in EditGroupInput) (bool, error) {
 	if err := s.authorizer.RequireAdmin(ctx, actor); err != nil {
 		return false, err

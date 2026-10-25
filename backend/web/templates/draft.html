@@ -1,9 +1,4 @@
-{{/*
-Data:Layout, Draft (ID, Title, SQL, Revision, UpdatedAt, UpdatedBy), Error (summary),
-Conflict (true after REVISION_CONFLICT; the form then holds the user's unsaved input).
-CanReview (true only after the review route is available).
-The newline after <textarea> is dropped by browsers, so SQL that starts with a newline survives.
-*/}}
+{{/* Form draft mempertahankan input saat konflik. Baris baru sesudah tag textarea mengimbangi satu baris baru yang dibuang browser agar SQL tetap utuh. */}}
 {{define "draft"}}{{template "header" .}}
 {{if .Conflict}}
 <p class="status failed" role="alert">Someone saved a newer revision. Your changes were not saved. <a href="/databases/{{.Database.ID}}/drafts/{{.Draft.ID}}">Open the latest version</a> and apply them again.</p>

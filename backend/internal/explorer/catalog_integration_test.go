@@ -339,7 +339,7 @@ func TestCatalogPostgres(t *testing.T) {
 			t.Fatal("canceled catalog did not finish cleanup")
 		}
 		_ = blocker.Rollback(ctx)
-		// Repeated requests also prove Provider's four slots are returned.
+		// Request berulang juga membuktikan keempat slot Provider dilepas kembali.
 		for i := 0; i < 6; i++ {
 			read(t, f.targets[0], schema, table)
 		}

@@ -13,14 +13,14 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// AddMember is idempotent. It requires active resources only when it actually
-// creates the relationship and then requires every live family to reauthenticate.
+// AddMember bersifat idempoten. Relasi baru memerlukan resource aktif dan mewajibkan reauthentication
+// pada seluruh family yang masih hidup.
 func (s *Service) AddMember(ctx context.Context, actor access.Principal, groupID, userID uuid.UUID) (bool, error) {
 	return s.changeMember(ctx, actor, groupID, userID, true)
 }
 
-// RemoveMember is idempotent and revokes every family only after an existing
-// relationship is removed. The bool tells an HTTP caller to redirect the actor.
+// RemoveMember mencabut seluruh family setelah membership benar-benar dihapus. Nilai bool meminta
+// handler mengarahkan actor ke login.
 func (s *Service) RemoveMember(ctx context.Context, actor access.Principal, groupID, userID uuid.UUID) (bool, error) {
 	return s.changeMember(ctx, actor, groupID, userID, false)
 }
@@ -96,14 +96,14 @@ func (s *Service) changeMember(ctx context.Context, actor access.Principal, grou
 	return actor.UserID == userID, nil
 }
 
-// SetGrant is idempotent. Adding/upgrading access requires active resources;
-// downgrade remains available so an admin can reduce access while inactive.
+// SetGrant bersifat idempoten. Penambahan atau peningkatan akses memerlukan resource aktif; penurunan
+// akses tetap diperbolehkan saat nonaktif.
 func (s *Service) SetGrant(ctx context.Context, actor access.Principal, groupID, targetID uuid.UUID, level access.Level) (bool, error) {
 	return s.changeGrant(ctx, actor, groupID, targetID, level, false)
 }
 
-// RemoveGrant is idempotent for a missing relationship, not for missing parent
-// resources. An actual removal revokes all current group members.
+// RemoveGrant menerima relasi yang sudah tidak ada, tetapi parent harus ada. Penghapusan grant
+// mencabut session seluruh anggota group.
 func (s *Service) RemoveGrant(ctx context.Context, actor access.Principal, groupID, targetID uuid.UUID) (bool, error) {
 	return s.changeGrant(ctx, actor, groupID, targetID, "", true)
 }

@@ -1,8 +1,4 @@
-{{/*
-Data:Layout, Databases (ID, Name, Access view_only|view_edit, ActiveAttempt nil or
-ID, Version, State) and Pager. No host, user or password of a target is shown.
-Each database is a card: name, your access, the in-progress attempt, and its pages.
-*/}}
+{{/* Daftar target yang dapat diakses user melalui grant group aktif. */}}
 {{define "databases"}}{{template "header" .}}
 {{if .Databases}}
 <ul class="db-grid" role="list">

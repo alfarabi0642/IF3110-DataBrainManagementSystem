@@ -1,9 +1,4 @@
-{{/*
-Shared page frame. Page data embeds httpx.Layout. .Active names the current nav item
-(databases, users, groups, connections, explorer, drafts, history).
-Signed-in pages get a left rail (main nav, database nav, account); signed-out pages get a
-centred "guest" stage. Everything works without JavaScript; /static/app.js only enhances.
-*/}}
+{{/* Kerangka halaman memakai httpx.Layout. Active menentukan navigasi; halaman tamu tidak menampilkan rail akun. Alur inti bekerja tanpa JavaScript. */}}
 {{define "header"}}<!doctype html>
 <html lang="en">
 <head>

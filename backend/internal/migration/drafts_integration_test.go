@@ -114,8 +114,8 @@ func newDraftFixture(t *testing.T) draftFixture {
 	    VALUES ($1,'draft_editor_a','Editor A','synthetic-not-a-login-hash'),($2,'draft_editor_b','Editor B','synthetic-not-a-login-hash')`, f.actor, f.otherActor); err != nil {
 		t.Fatal("cannot create synthetic draft actors")
 	}
-	// Credentials are intentionally unusable. Target b is also offline; saving
-	// drafts must work without a Provider, decryption or network probe.
+	// Credential sengaja tidak dapat dipakai dan target B offline. Penyimpanan draft harus tetap bekerja
+	// tanpa Provider, dekripsi, atau probe jaringan.
 	if _, err := db.Pool.Exec(ctx, `INSERT INTO databrain.database_targets
 	    (id,name,host,port,database_name,username,password_sealed,ssl_mode,created_by)
 	    VALUES ($1,'Target A','127.0.0.1',55432,$3,'databrain_target',decode(repeat('00',30),'hex'),'disable',$4),
@@ -181,7 +181,7 @@ func TestDraftStorePostgres(t *testing.T) {
 		if err != nil || latest.SQL != large.SQL || latest.Title != large.Title {
 			t.Fatal("maximum valid input was not preserved")
 		}
-		// Equal timestamps exercise the UUID tie breaker deterministically.
+		// Timestamp identik menguji pengurutan penentu UUID secara deterministik.
 		if _, err := s.pool.Exec(ctx, "UPDATE databrain.migration_drafts SET updated_at='2026-01-01T00:00:00Z' WHERE target_id=$1", f.a); err != nil {
 			t.Fatal("cannot set this test's ordering fixture")
 		}

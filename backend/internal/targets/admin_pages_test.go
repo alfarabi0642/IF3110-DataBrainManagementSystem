@@ -13,8 +13,7 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
 )
 
-// Renders the shipped admin templates with the handler's real page structs, so a
-// renamed field fails here instead of at request time. No database is needed.
+// Render template admin dengan tipe halaman asli agar perubahan field terdeteksi tanpa database.
 func renderAdmin(t *testing.T, name string, page any) string {
 	t.Helper()
 	renderer, err := httpx.LoadTemplates("../../web/templates")
@@ -66,13 +65,13 @@ func TestAdminDatabasePage(t *testing.T) {
 		"rejected the username or password", "2026-10-24 01:02:03 UTC", "Stored", `<option value="true" selected>`, "Save changes")
 	requireText(t, body, false, "<b>prod", `name="host"`, `name="port"`, `name="database_name"`)
 
-	// A conflict shows the user's input but resubmits against the current revision.
+	// Konflik menampilkan input pengguna tetapi mengirim ulang dengan revision terkini.
 	page.Form.Name, page.Form.ExpectedRevision = "mine", "3"
 	page.Conflict, page.Probe = true, nil
 	body = renderAdmin(t, "admin_database", page)
 	requireText(t, body, true, `value="mine"`, `name="expected_revision" value="7"`, "Someone changed this connection", "Save over the current version")
 
-	// A working probe reports version and latency.
+	// Probe berhasil menampilkan versi dan latensi.
 	page.Conflict, page.Probe = false, &ProbeResult{OK: true, ServerVersion: 170011, Latency: 12 * time.Millisecond}
 	requireText(t, renderAdmin(t, "admin_database", page), true, "Connection works", "170011", "12ms")
 }

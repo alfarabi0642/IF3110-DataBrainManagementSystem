@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// AttemptReceipt identifies a durable attempt without loading its SQL snapshot.
+// AttemptReceipt mengidentifikasi attempt tersimpan tanpa memuat snapshot SQL.
 type AttemptReceipt struct {
 	ID, TargetID, DraftID, ActorID, RequestKey uuid.UUID
 	DraftRevision                              int64
@@ -27,8 +27,8 @@ type ReserveInput struct {
 	RequestKey       uuid.UUID
 }
 
-// Reservation grants one claim only to the call that created this attempt.
-// Copies share the same single-use permit; receipts read later have no permit.
+// Reservation memberi satu izin claim pada pemanggil pembuat attempt. Salinannya berbagi izin sekali
+// pakai; receipt yang dibaca belakangan tidak memiliki izin.
 type Reservation struct {
 	Receipt AttemptReceipt
 	creator *claimPermit
@@ -42,8 +42,8 @@ type claimPermit struct {
 
 func (r Reservation) Created() bool { return r.creator != nil }
 
-// AttemptStore never connects to a target. The caller must authorize execute
-// before Reserve and recheck authorization before starting a target transaction.
+// AttemptStore hanya memakai platform. Pemanggil wajib mengotorisasi execute sebelum Reserve dan
+// memeriksa ulang sebelum transaksi target.
 type AttemptStore struct{ pool *pgxpool.Pool }
 
 func NewAttemptStore(pool *pgxpool.Pool) *AttemptStore { return &AttemptStore{pool: pool} }
@@ -82,9 +82,9 @@ func lookupReceipt(ctx context.Context, db platformdb.DBTX, targetID, actorID, k
 	    WHERE target_id=$1 AND executor_id=$2 AND request_key=$3`, targetID, actorID, key))
 }
 
-// Receipt returns nil when this actor has no receipt for this target/key.
-// Absence alone does not prove that an earlier request cannot still commit.
-// Callers must authorize the target and obtain actorID from the validated session.
+// Receipt mengembalikan nil jika actor belum memiliki receipt untuk target/key. Ketiadaannya tidak
+// membuktikan request lama tidak akan commit. Otorisasi target dan ambil actorID dari session
+// tervalidasi.
 func (s *AttemptStore) Receipt(ctx context.Context, targetID, actorID, key uuid.UUID) (*AttemptReceipt, error) {
 	if targetID == uuid.Nil || actorID == uuid.Nil || key == uuid.Nil {
 		return nil, attemptFailure(problem.InvalidRequest)
@@ -116,8 +116,8 @@ func rollbackAttempt(tx pgx.Tx) {
 	_ = tx.Rollback(ctx)
 }
 
-// Discard the connection whose commit acknowledgment was lost before looking
-// for durable proof on another connection. Never retry the mutation here.
+// Buang koneksi yang kehilangan acknowledgement COMMIT, lalu cari bukti tersimpan lewat koneksi baru.
+// Jangan mengulang mutasi di sini.
 func closeUncertainAttemptConn(lease *pgxpool.Conn) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -144,7 +144,7 @@ func (s *AttemptStore) Reserve(ctx context.Context, targetID, draftID, actorID u
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	// Replay precedes current draft, target status and stream contention.
+	// Periksa replay sebelum draft terkini, status target, dan contention stream.
 	r, err := s.Receipt(ctx, targetID, actorID, input.RequestKey)
 	if err != nil {
 		return Reservation{}, err
@@ -172,8 +172,8 @@ func (s *AttemptStore) Reserve(ctx context.Context, targetID, draftID, actorID u
 	if err != nil {
 		return Reservation{}, attemptStoreError(err)
 	}
-	// A separate READ COMMITTED command sees the winner after waiting for its
-	// stream lock; the lock query's snapshot may predate that winner's commit.
+	// Query READ COMMITTED terpisah melihat pemenang setelah menunggu lock stream; snapshot query lock
+	// dapat mendahului commit pemenang.
 	r, err = lookupReceipt(ctx, tx, targetID, actorID, input.RequestKey)
 	if err != nil {
 		return Reservation{}, err
@@ -253,15 +253,15 @@ func (s *AttemptStore) recoverClaim(r AttemptReceipt) (bool, error) {
 	return true, nil
 }
 
-// Claim returns true only after the creator's reserved -> running transition
-// is acknowledged or proved durable. False/error never authorizes target SQL.
-// A consumed permit cannot retry, including after an inconclusive commit.
+// Claim mengembalikan true hanya jika transisi reserved ke running telah diakui atau terbukti
+// tersimpan. False/error tidak memberi izin SQL. Izin yang terpakai tidak boleh dicoba lagi meski
+// hasil commit belum pasti.
 func (s *AttemptStore) Claim(ctx context.Context, reservation Reservation) (bool, error) {
 	p := reservation.creator
 	if p == nil || p.store != s || !p.used.CompareAndSwap(false, true) {
 		return false, nil
 	}
-	r := p.receipt // Do not trust a caller-modified copy of the public receipt.
+	r := p.receipt // Jangan percaya salinan receipt yang dapat diubah pemanggil.
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	lease, err := platformdb.Acquire(ctx, s.pool)

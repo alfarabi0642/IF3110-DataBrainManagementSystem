@@ -17,7 +17,7 @@ import (
 
 const MaxSQLBytes = 128 << 10
 
-// DraftSummary deliberately excludes the script from list results.
+// DraftSummary tidak memuat SQL pada hasil daftar.
 type DraftSummary struct {
 	ID, TargetID, CreatedBy, UpdatedBy uuid.UUID
 	Title                              string
@@ -30,7 +30,7 @@ type Draft struct {
 	SQL string
 }
 
-// DraftInput contains decoded form values. Validation never normalizes them.
+// DraftInput mempertahankan nilai form yang sudah di-decode tanpa normalisasi.
 type DraftInput struct {
 	Title, SQL string
 }
@@ -40,8 +40,8 @@ type SaveDraftInput struct {
 	ExpectedRevision int64
 }
 
-// DraftStore uses only the platform pool, never a target connection. Callers
-// must authorize MigrationWrite for the target and obtain actorID from session.
+// DraftStore hanya memakai pool platform. Pemanggil wajib mengotorisasi MigrationWrite pada target dan
+// mengambil actorID dari session.
 type DraftStore struct {
 	pool *pgxpool.Pool
 }
@@ -111,8 +111,8 @@ func (s *DraftStore) Create(ctx context.Context, targetID, actorID uuid.UUID, in
 	return d, nil
 }
 
-// List uses updated_at DESC/id ordering and limit+1 to report another page.
-// The caller supplies pagination defaults; zero is not a default limit here.
+// List memakai urutan updated_at DESC/id dan limit+1 untuk menandai halaman berikutnya. Default
+// pagination ditentukan pemanggil; limit nol tidak dianggap default.
 func (s *DraftStore) List(ctx context.Context, targetID uuid.UUID, limit, offset int) ([]DraftSummary, bool, error) {
 	if targetID == uuid.Nil || limit < 1 || limit > 200 || offset < 0 || offset > 100000 {
 		return nil, false, draftFailure(problem.InvalidRequest)
@@ -169,8 +169,8 @@ func (s *DraftStore) Get(ctx context.Context, targetID, draftID uuid.UUID) (Draf
 	return d, nil
 }
 
-// Save atomically updates only the expected revision, including identical text.
-// A stale writer never overwrites newer input. No SQL parsing/execution occurs.
+// Save memperbarui revision yang diharapkan secara atomik, termasuk untuk teks identik. Penulis dengan
+// revision lama tidak menimpa data baru. SQL tidak diparsing atau dijalankan.
 func (s *DraftStore) Save(ctx context.Context, targetID, draftID, actorID uuid.UUID, input SaveDraftInput) (Draft, error) {
 	if targetID == uuid.Nil || draftID == uuid.Nil || actorID == uuid.Nil || input.ExpectedRevision < 1 {
 		return Draft{}, draftFailure(problem.InvalidRequest)

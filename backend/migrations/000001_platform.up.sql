@@ -1,5 +1,4 @@
--- Initial M1 platform schema. IDs are supplied by Go.
--- IDs are supplied by Go. Apply with a migrator role, never a target role.
+-- Schema awal platform M1. ID dibuat oleh Go; jalankan sebagai migrator, bukan role target.
 CREATE SCHEMA databrain;
 
 CREATE TABLE databrain.security_guard (
@@ -225,7 +224,7 @@ $$;
 CREATE TRIGGER protect_attempt_snapshot BEFORE INSERT OR UPDATE ON databrain.migration_attempts
     FOR EACH ROW EXECUTE FUNCTION databrain.protect_attempt();
 
--- Deployment roles are provisioned separately (see dev/setup.sql).
+-- Role deployment disiapkan terpisah melalui dev/setup.sql.
 REVOKE ALL ON SCHEMA databrain FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA databrain FROM PUBLIC;
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA databrain FROM PUBLIC;
@@ -237,6 +236,6 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON databrain.memberships,
     databrain.database_grants, databrain.sessions, databrain.session_tokens,
     databrain.login_windows TO databrain_runtime;
 GRANT SELECT, UPDATE ON databrain.security_guard TO databrain_runtime;
--- Only golang-migrate metadata lives outside the application schema.
+-- Hanya metadata golang-migrate berada di luar schema aplikasi.
 GRANT USAGE ON SCHEMA public TO databrain_runtime;
 GRANT SELECT ON public.schema_migrations TO databrain_runtime;

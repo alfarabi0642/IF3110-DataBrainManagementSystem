@@ -100,8 +100,8 @@ func adminFixture(t *testing.T) (*Service, access.Principal) {
 	if err != nil {
 		t.Fatal("cannot seed fixture family")
 	}
-	// Fixture-only authentication until POST /login exists. The stored family
-	// and canonical token still use the real schema and encryption helpers.
+	// Session dibuat langsung untuk mengisolasi pengujian admin dari alur login. Schema, enkripsi token,
+	// dan validasi session tetap memakai implementasi asli.
 	if _, err := db.Pool.Exec(ctx, `UPDATE databrain.sessions SET kind='authenticated',user_id=$2,security_version=1
 	    WHERE id=$1`, state.ID, id); err != nil {
 		t.Fatal("cannot seed fixture identity")

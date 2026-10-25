@@ -71,8 +71,8 @@ func TestV1Interoperability(t *testing.T) {
 		{"target", "databrain/target-secret/v1", "target:11111111-2222-4333-8444-555555555555:v1", s.SealTarget, s.OpenTarget},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			// Decode the public format with ordinary AES-GCM, independently of
-			// the helper's random-nonce envelope implementation.
+			// Decode format publik memakai AES-GCM langsung agar tidak bergantung pada implementasi envelope
+			// helper.
 			key, err := hkdf.Key(sha256.New, root, nil, tc.info, 32)
 			if err != nil {
 				t.Fatal("HKDF setup failed")
@@ -94,7 +94,7 @@ func TestV1Interoperability(t *testing.T) {
 			if err != nil || !bytes.Equal(got, plaintext) {
 				t.Fatal("v1 envelope is incompatible with the specified key, AAD or wire format")
 			}
-			nonce := bytes.Repeat([]byte{0x11}, 12) // Fixed only for this synthetic compatibility fixture.
+			nonce := bytes.Repeat([]byte{0x11}, 12) // Nilai tetap hanya untuk fixture kompatibilitas sintetis ini.
 			fixture := gcm.Seal(append([]byte{1}, nonce...), nonce, plaintext, []byte(tc.aad))
 			got, err = tc.open(resourceID, fixture)
 			if err != nil || !bytes.Equal(got, plaintext) {
@@ -156,7 +156,7 @@ func TestOpenRejectsMalformedOrTamperedEnvelope(t *testing.T) {
 					t.Fatal("truncated envelope accepted or disclosed")
 				}
 				tampered := bytes.Clone(envelope)
-				tampered[i] ^= 0xff // Covers version, nonce, ciphertext and tag.
+				tampered[i] ^= 0xff // Mencakup versi, nonce, ciphertext, dan tag.
 				if got, err := tc.open(resourceID, tampered); got != nil || err != secret.ErrOpen {
 					t.Fatal("tampered envelope accepted or disclosed")
 				}

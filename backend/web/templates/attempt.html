@@ -1,8 +1,4 @@
-{{/*
-Data: Layout and Attempt: ID, Version, Title, TargetName, Revision, Actor, State, SQL, SQLHash, CreatedAt, StartedAt, CommitStartedAt,
-FinishedAt, FailureCode, FailureMessage, SQLState, StatementIndex (1-based, 0 = none),
-FirstUnknownAt, ResolvedAt, ResolutionSummary. Optional fields are empty when not set.
-*/}}
+{{/* Detail attempt memakai snapshot tetap. Hasil unknown hanya menawarkan pemeriksaan receipt. */}}
 {{define "attempt"}}{{template "header" .}}
 {{with .Attempt}}
 <div class="verdict {{.State}}" aria-hidden="true"><span class="verdict-ring"></span><span class="verdict-word">{{.State}}</span></div>

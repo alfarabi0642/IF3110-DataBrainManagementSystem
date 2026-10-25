@@ -36,7 +36,7 @@ type draftHTTPFixture struct {
 
 func newDraftHTTPFixture(t *testing.T, origin string) draftHTTPFixture {
 	t.Helper()
-	f := newDraftFixture(t) // Owner/path/system identifier checked before mutation.
+	f := newDraftFixture(t) // Owner, path, dan identitas fixture diperiksa sebelum mutasi.
 	ctx := context.Background()
 	exec := func(sql string, args ...any) {
 		t.Helper()
@@ -98,7 +98,7 @@ func newDraftHTTPFixture(t *testing.T, origin string) draftHTTPFixture {
 		if err != nil {
 			t.Fatal("cannot create test session")
 		}
-		if user != uuid.Nil { // Login handlers are Brain's pending work; validator/guard remain real.
+		if user != uuid.Nil { // Session fixture mengisolasi test dari login; validator dan guard tetap asli.
 			exec(`UPDATE databrain.sessions SET kind='authenticated',user_id=$2,security_version=1 WHERE id=$1`, state.ID, user)
 		}
 		return draftSession{state.ID, token, state.CSRF}
@@ -301,7 +301,7 @@ func TestDraftHandlersPostgres(t *testing.T) {
 		f.request(t, "POST", detail, f.editor, draftValues(f.editor, "x", "x", "1"), 404)
 		exec(`UPDATE databrain.database_targets SET is_active=true WHERE id=$1`, f.a)
 		exec(`UPDATE databrain.groups SET is_active=false WHERE id=$1`, f.editGroup)
-		f.request(t, "GET", detail, f.editor, nil, 403) // A remaining View grant cannot edit.
+		f.request(t, "GET", detail, f.editor, nil, 403) // Grant View yang tersisa tidak mengizinkan edit.
 		exec(`UPDATE databrain.groups SET is_active=true WHERE id=$1`, f.editGroup)
 		exec(`UPDATE databrain.sessions SET revoked_at=now() WHERE id=$1`, f.editor.id)
 		f.request(t, "GET", detail, f.editor, nil, 303)

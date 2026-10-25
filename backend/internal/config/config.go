@@ -1,4 +1,4 @@
-// Package config loads the configuration needed by the implemented features.
+// Package config memuat konfigurasi aplikasi.
 package config
 
 import (

@@ -30,8 +30,8 @@ type DataPage struct {
 }
 type ConstraintInfo struct{ Kind, Columns, Definition string }
 
-// ExplorerPage matches Jordan's explorer template and contains no connection
-// metadata. All links are constructed here from fixed paths and encoded values.
+// ExplorerPage berisi data tampilan tanpa metadata koneksi. Link dibangun dari path tetap dan nilai
+// yang di-encode.
 type ExplorerPage struct {
 	httpx.Layout
 	Schema, Table, Tab, AllHref, SchemaHref string
@@ -162,7 +162,7 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 		fail(err)
 		return
 	}
-	// Read only the display fields needed by the shared layout, after the guard.
+	// Baca hanya field tampilan yang diperlukan layout setelah pemeriksaan akses.
 	lease, err := platformdb.Acquire(ctx, h.pool)
 	if err != nil {
 		fail(failure(problem.PlatformUnavailable))

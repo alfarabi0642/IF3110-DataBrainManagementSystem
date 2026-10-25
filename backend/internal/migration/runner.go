@@ -14,9 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Runner is created once per server. Durable ordering is in AttemptStore;
-// these two nonblocking slots bound local work before making a reservation.
-// Routes must remain disabled until startup recovery is installed.
+// Runner dibuat sekali per server. AttemptStore menjaga urutan permanen; dua slot lokal membatasi
+// pekerjaan sebelum reservasi. Route hanya dipasang setelah recovery startup.
 type Runner struct {
 	store      *AttemptStore
 	provider   *targets.Provider
@@ -43,16 +42,16 @@ func (runner *Runner) replay(ctx context.Context, target, draft, actor uuid.UUID
 	return &matched.Receipt, nil
 }
 
-// Execute receives the principal validated by auth, never an actor from a form.
-// A receipt's State is the outcome, including failed/unknown. On an error after
-// reservation it can still identify the attempt whose status must be checked.
+// Execute menerima principal tervalidasi, tanpa actor dari form. State receipt menunjukkan hasil
+// termasuk failed/unknown. Jika error terjadi setelah reservasi, receipt tetap dapat dipakai untuk
+// memeriksa attempt.
 func (runner *Runner) Execute(ctx context.Context, p access.Principal, targetID, draftID uuid.UUID, input ReserveInput) (AttemptReceipt, error) {
 	if targetID == uuid.Nil || draftID == uuid.Nil || input.RequestKey == uuid.Nil || input.ExpectedRevision < 1 {
 		return AttemptReceipt{}, attemptFailure(problem.InvalidRequest)
 	}
 	end := time.Now().Add(65 * time.Second)
-	// Reserve five seconds for rollback/close and outcome persistence within
-	// the overall ceiling. The parent still cancels active work immediately.
+	// Sisihkan lima detik untuk rollback, penutupan, dan penyimpanan hasil dalam batas total. Pembatalan
+	// parent tetap langsung menghentikan pekerjaan aktif.
 	ctx, cancel := context.WithDeadline(ctx, end.Add(-5*time.Second))
 	defer cancel()
 	if _, err := runner.authorizer.RequireDatabase(ctx, p, targetID, access.MigrationExecute); err != nil {
@@ -117,8 +116,8 @@ func (runner *Runner) runTarget(ctx context.Context, p access.Principal, r Attem
 		defer cancel()
 		_ = conn.Close(cleanup)
 	}()
-	// This is the authorization decision immediately before BEGIN, after any
-	// connection wait. A revocation committed before this check prevents SQL.
+	// Periksa otorisasi tepat sebelum BEGIN setelah menunggu koneksi. Pencabutan yang sudah commit sebelum
+	// pemeriksaan ini mencegah SQL berjalan.
 	if _, err := runner.authorizer.RequireDatabase(ctx, p, r.TargetID, access.MigrationExecute); err != nil {
 		var denied *problem.Error
 		if errors.As(err, &denied) && denied.Code == problem.PlatformUnavailable {
@@ -130,7 +129,7 @@ func (runner *Runner) runTarget(ctx context.Context, p access.Principal, r Attem
 	if err != nil {
 		return notStartedExecutionError(ctx, "CONNECTION_FAILED", "The target transaction could not be started.")
 	}
-	// These are fixed backend control statements, kept separate from user SQL.
+	// Statement kontrol backend tetap dipisahkan dari SQL pengguna.
 	_, err = tx.Exec(ctx, `SET LOCAL statement_timeout='30s'; SET LOCAL lock_timeout='3s'; SET LOCAL search_path=public`, pgx.QueryExecModeSimpleProtocol)
 	if err != nil {
 		return rollbackExecution(tx, statementFailure(ctx, err, 0), end)
@@ -150,8 +149,8 @@ func (runner *Runner) runTarget(ctx context.Context, p access.Principal, r Attem
 	if ctx.Err() != nil || time.Until(deadline) < time.Second {
 		return rollbackExecution(tx, executionCanceled(ctx), end)
 	}
-	// No COMMIT retry, even when the acknowledgment is lost. The closed pgx.Tx
-	// cannot prove rollback afterward; recovery requires operator evidence.
+	// Jangan mengulang COMMIT meski acknowledgement hilang. pgx.Tx yang tertutup tidak membuktikan
+	// rollback; recovery memerlukan bukti operator.
 	err = tx.Commit(ctx)
 	return commitOutcome(conn, err)
 }
@@ -188,8 +187,8 @@ func commitOutcome(conn *pgx.Conn, err error) attemptOutcome {
 	}
 	code := safeSQLState(err)
 	var pgErr *pgconn.PgError
-	// Only acknowledged, definitive rollback cases qualify. Connection errors,
-	// statement_completion_unknown (40003), fatal/internal errors remain unknown.
+	// Hanya rollback definitif yang diakui dapat disebut gagal. Error koneksi,
+	// statement_completion_unknown (40003), serta error fatal/internal tetap unknown.
 	definitive := errors.Is(err, pgx.ErrTxCommitRollback) ||
 		errors.As(err, &pgErr) && pgErr.Severity == "ERROR" && conn != nil && conn.PgConn().TxStatus() == 'I' &&
 			(strings.HasPrefix(code, "23") || code == "40001" || code == "40P01" || code == "P0001")

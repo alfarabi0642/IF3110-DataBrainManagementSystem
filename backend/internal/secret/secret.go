@@ -1,5 +1,5 @@
-// Package secret supplies the shared v1 secret format for auth and targets.
-// It does not issue sessions, hash passwords, or implement CSRF policy.
+// Package secret menyediakan format rahasia v1 untuk auth dan target. Penerbitan session, hash
+// password, dan policy CSRF ditangani paket masing-masing.
 package secret
 
 import (
@@ -21,8 +21,8 @@ var (
 	ErrOpen           = errors.New("secret: invalid sealed value")
 )
 
-// Secrets holds separate keys for session tokens, target passwords, CSRF and
-// login rate limiting. Construct it with New; it does not retain the root key.
+// Secrets menyimpan kunci terpisah untuk token session, password target, CSRF, dan rate limit. Buat
+// melalui New; root key tidak disimpan.
 type Secrets struct {
 	session   cipher.AEAD
 	target    cipher.AEAD
@@ -30,7 +30,7 @@ type Secrets struct {
 	rateLimit [32]byte
 }
 
-// New derives four 32-byte HKDF-SHA256 keys with no salt and fixed v1 info.
+// New menurunkan empat kunci 32 byte memakai HKDF-SHA256 tanpa salt dan info v1 tetap.
 func New(rootKey []byte) (*Secrets, error) {
 	if len(rootKey) != 32 {
 		return nil, ErrInvalidKey
@@ -64,12 +64,12 @@ func newAEAD(key []byte) (cipher.AEAD, error) {
 	if err != nil {
 		return nil, err
 	}
-	// This standard primitive prepends a fresh random 12-byte nonce and appends
-	// the 16-byte authentication tag. Callers never supply or reuse a nonce.
+	// Primitive standar ini menambahkan nonce acak 12 byte di awal dan tag autentikasi 16 byte di akhir.
+	// Pemanggil tidak memasok atau memakai ulang nonce.
 	return cipher.NewGCMWithRandomNonce(block)
 }
 
-// SealSession binds the token to sessionID with AAD session:<UUID>:v1.
+// SealSession mengikat token ke sessionID melalui AAD session:<UUID>:v1.
 func (s *Secrets) SealSession(sessionID uuid.UUID, token []byte) ([]byte, error) {
 	return seal(s.session, "session", sessionID, token)
 }
@@ -78,7 +78,7 @@ func (s *Secrets) OpenSession(sessionID uuid.UUID, envelope []byte) ([]byte, err
 	return open(s.session, "session", sessionID, envelope)
 }
 
-// SealTarget binds the password to targetID with AAD target:<UUID>:v1.
+// SealTarget mengikat password ke targetID melalui AAD target:<UUID>:v1.
 func (s *Secrets) SealTarget(targetID uuid.UUID, password []byte) ([]byte, error) {
 	return seal(s.target, "target", targetID, password)
 }
@@ -87,17 +87,17 @@ func (s *Secrets) OpenTarget(targetID uuid.UUID, envelope []byte) ([]byte, error
 	return open(s.target, "target", targetID, envelope)
 }
 
-// CSRFKey returns a copy for auth's HMAC-SHA256 CSRF implementation.
+// CSRFKey mengembalikan salinan kunci untuk HMAC-SHA256 CSRF.
 func (s *Secrets) CSRFKey() [32]byte { return s.csrf }
 
-// RateLimitKey returns a copy for auth's HMAC-SHA256 login bucket keys.
+// RateLimitKey mengembalikan salinan kunci untuk bucket login HMAC-SHA256.
 func (s *Secrets) RateLimitKey() [32]byte { return s.rateLimit }
 
 func seal(aead cipher.AEAD, scope string, id uuid.UUID, plaintext []byte) ([]byte, error) {
 	if id == uuid.Nil {
 		return nil, ErrInvalidID
 	}
-	// Envelope: version byte || nonce || ciphertext || authentication tag.
+	// Format envelope: byte versi || nonce || ciphertext || tag autentikasi.
 	return aead.Seal([]byte{version}, nil, plaintext, []byte(scope+":"+id.String()+":v1")), nil
 }
 

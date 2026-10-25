@@ -20,10 +20,9 @@ const (
 	MaxFormBody     int64 = 1 << 20
 )
 
-// ParseForm reads a POST body once. Auth must call it before checking CSRF;
-// subsequent handlers validate r.PostForm with ValidateFields instead of parsing
-// again. A previously parsed request is rejected to avoid losing an earlier
-// parse error or silently accepting a body read under a different limit.
+// ParseForm membaca body POST sekali sebelum CSRF. Handler berikutnya memakai ValidateFields pada
+// r.PostForm. Request yang sudah diparsing ditolak agar error lama atau batas ukuran sebelumnya tidak
+// terabaikan.
 func ParseForm(w http.ResponseWriter, r *http.Request, limit int64) (url.Values, error) {
 	if r.PostForm != nil || r.Form != nil {
 		return nil, &problem.Error{Code: problem.InternalError}
@@ -67,9 +66,8 @@ func ParseQuery(r *http.Request, allowed ...string) (url.Values, error) {
 	return values, nil
 }
 
-// ValidateFields checks presence, not nonempty text. Feature handlers validate
-// their own text lengths and semantics. Include _csrf among allowed fields;
-// token presence, format, and constant-time verification belong to auth.
+// ValidateFields memeriksa keberadaan field; handler memeriksa panjang dan maknanya. Izinkan _csrf
+// dalam daftar field; validasi format dan perbandingan token tetap milik auth.
 func ValidateFields(values url.Values, required, optional []string) error {
 	if err := validateScalars(values); err != nil {
 		return err
@@ -133,8 +131,8 @@ func UUIDValue(values url.Values, name string) (uuid.UUID, error) {
 	return id, nil
 }
 
-// SafeFormValues explicitly selects fields for redisplay. Passwords and the
-// submitted CSRF token are never copied; auth supplies the current page token.
+// SafeFormValues memilih field yang boleh ditampilkan ulang. Password dan token CSRF kiriman tidak
+// disalin; auth memasok token halaman terkini.
 func SafeFormValues(values url.Values, names ...string) url.Values {
 	safe := make(url.Values)
 	for _, name := range names {

@@ -10,7 +10,7 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
 )
 
-// The shipped templates must parse, escape layout data, and render errors.
+// Template proyek harus dapat diparsing, melakukan escape data layout, dan menampilkan error.
 func TestWebTemplatesRenderErrorPage(t *testing.T) {
 	renderer, err := LoadTemplates("../../web/templates")
 	if err != nil || renderer == nil {
