@@ -1,4 +1,4 @@
--- Schema awal platform M1. ID dibuat oleh Go; jalankan sebagai migrator, bukan role target.
+-- Schema awal platform. ID dibuat oleh Go; jalankan sebagai migrator, bukan role target.
 CREATE SCHEMA databrain;
 
 CREATE TABLE databrain.security_guard (

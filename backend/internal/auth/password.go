@@ -39,7 +39,7 @@ func ValidatePassword(password string) error {
 	return nil
 }
 
-// HashPassword memakai kebijakan Argon2id M1 dan salt acak baru.
+// HashPassword memakai kebijakan Argon2id aplikasi dan salt acak baru.
 func HashPassword(ctx context.Context, password string) (string, error) {
 	if err := ValidatePassword(password); err != nil {
 		return "", err

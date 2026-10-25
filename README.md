@@ -37,7 +37,7 @@ Session disimpan di server; browser menerima identifier opaque lewat cookie. Ses
 
 Identifier dirotasi setiap 15 menit. Identifier lama menjadi alias selama 120 detik, paling lama sampai batas maksimum session. Request paralel dengan alias yang masih valid menerima identifier terkini. Rotasi tidak memperpanjang absolute expiration.
 
-Login mencabut family anonymous atau family yang memerlukan reauthentication, kemudian membuat family authenticated baru dalam transaksi yang sama. Token anonymous lama langsung tidak berlaku dan tidak memperoleh hak authenticated. **GAP-03 masih memerlukan keputusan interpretasi spec mengenai grace pada login**; perilaku ini belum diubah.
+Login mencabut family anonymous atau family yang memerlukan reauthentication, kemudian membuat family authenticated baru dalam transaksi yang sama. Token anonymous lama langsung tidak berlaku dan tidak memperoleh hak authenticated.
 
 Peningkatan privilege (misalnya promosi admin, penambahan membership/grant, atau reaktivasi akses) merotasi family yang masih hidup dan mewajibkan verifikasi password sebelum fitur terlindungi dapat dipakai lagi. Deadline lama dipertahankan selama rotasi; login ulang yang berhasil membuat family baru. Penurunan/pencabutan akses dan reset password mencabut seluruh family pengguna terkait serta menaikkan security version. Perubahan nama dan pengiriman nilai identik tidak mengubah session. Perubahan tipe akun yang tetap nonaktif hanya menyimpan data akun.
 

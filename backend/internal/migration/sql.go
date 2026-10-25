@@ -33,7 +33,7 @@ type SQLValidationError struct {
 func (e *SQLValidationError) Error() string { return string(e.Code) }
 func (e *SQLValidationError) Unwrap() error { return &problem.Error{Code: e.Code} }
 
-// ValidateSQL memeriksa sintaks PostgreSQL 17 dan policy migration M1 tanpa koneksi database atau
+// ValidateSQL memeriksa sintaks PostgreSQL 17 dan policy migration aplikasi tanpa koneksi database atau
 // pemeriksaan objek/izin. Saat error, tidak ada potongan SQL yang boleh dijalankan.
 func ValidateSQL(sql string) ([]Statement, error) {
 	invalid := func() ([]Statement, error) { return nil, &SQLValidationError{Code: problem.SQLInvalid} }
