@@ -54,12 +54,20 @@ func runBootstrapAdmin(args []string, stdout, stderr io.Writer) int {
 	cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	closeErr := db.Close(cleanup)
 	cancel()
-	if bootstrapErr != nil {
-		fmt.Fprintln(stderr, bootstrapErr)
-		return 1
-	}
+	return bootstrapResult(bootstrapErr, closeErr, stdout, stderr)
+}
+
+func bootstrapResult(bootstrapErr, closeErr error, stdout, stderr io.Writer) int {
 	if closeErr != nil {
 		fmt.Fprintln(stderr, platformdb.ErrUnavailable)
+		return 1
+	}
+	if errors.Is(bootstrapErr, auth.ErrBootstrapAdminExists) {
+		fmt.Fprintln(stdout, "An active platform admin already exists.")
+		return 0
+	}
+	if bootstrapErr != nil {
+		fmt.Fprintln(stderr, bootstrapErr)
 		return 1
 	}
 	fmt.Fprintln(stdout, "Platform admin created.")
