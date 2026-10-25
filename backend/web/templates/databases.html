@@ -1,0 +1,25 @@
+{{/* Daftar target yang dapat diakses user melalui grant group aktif. */}}
+{{define "databases"}}{{template "header" .}}
+{{if .Databases}}
+<ul class="db-grid" role="list">
+  {{range .Databases}}{{$id := .ID}}
+  <li class="db-card">
+    <div class="db-card-head">
+      <span class="db-glyph" aria-hidden="true"></span>
+      <span class="access {{.Access}}">{{if eq .Access "view_edit"}}View and edit{{else}}View only{{end}}</span>
+    </div>
+    <h2 class="db-name">{{.Name}}</h2>
+    <p class="db-progress"><span class="k">In progress</span>{{with .ActiveAttempt}}<a href="/databases/{{$id}}/migrations/{{.ID}}">Version {{.Version}}</a> {{template "state" .State}}{{else}}None{{end}}</p>
+    <div class="db-links">
+      <a href="/databases/{{.ID}}/explorer" aria-label="Explorer for {{.Name}}">Explorer</a>
+      {{if eq .Access "view_edit"}}<a href="/databases/{{.ID}}/drafts" aria-label="Drafts for {{.Name}}">Drafts</a>{{end}}
+      <a href="/databases/{{.ID}}/migrations" aria-label="History for {{.Name}}">History</a>
+    </div>
+  </li>
+  {{end}}
+</ul>
+{{template "pager" .Pager}}
+{{else}}
+<p class="page-intro">You cannot open any database yet. Ask an admin to add your group to one.</p>
+{{end}}
+{{template "footer" .}}{{end}}

@@ -1,5 +1,5 @@
-// Package access defines the identity and authorization contracts shared by features.
-// Session validation and grant checks are implemented by auth and the authorizer.
+// Package access mendefinisikan principal dan kontrak otorisasi. Validasi session dilakukan oleh auth;
+// pemeriksaan grant dilakukan oleh authorizer.
 package access
 
 import (
@@ -25,19 +25,19 @@ const (
 
 type Principal struct {
 	UserID          uuid.UUID
-	SessionID       uuid.UUID // Internal session UUID, never the cookie token.
+	SessionID       uuid.UUID // UUID session internal, bukan token cookie.
 	SecurityVersion int64
 }
 
 type principalKey struct{}
 
-// WithPrincipal is used by auth middleware only after validating the session.
-// Storing a principal does not grant permissions or replace an Authorizer check.
+// WithPrincipal dipakai middleware setelah session valid. Principal dalam context tetap memerlukan
+// pemeriksaan Authorizer.
 func WithPrincipal(ctx context.Context, p Principal) context.Context {
 	return context.WithValue(ctx, principalKey{}, p)
 }
 
-// FromContext reports whether auth middleware installed a principal.
+// FromContext memeriksa apakah middleware sudah memasang principal.
 func FromContext(ctx context.Context) (Principal, bool) {
 	p, ok := ctx.Value(principalKey{}).(Principal)
 	return p, ok

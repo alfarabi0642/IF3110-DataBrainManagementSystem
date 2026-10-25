@@ -1,0 +1,27 @@
+{{/* Daftar group dan form pembuatan group untuk admin. */}}
+{{define "admin_groups"}}{{template "header" .}}
+<p class="page-intro">Groups combine membership with database access grants.</p>
+{{if .Groups}}
+<div class="table-wrap">
+<table>
+  <caption class="sr-only">Access groups</caption>
+  <thead><tr><th>Group</th><th>Status</th><th>Revision</th></tr></thead>
+  <tbody>
+  {{range .Groups}}<tr><td><a href="/admin/groups/{{.ID}}">{{.Name}}</a></td><td>{{if .IsActive}}Active{{else}}Inactive{{end}}</td><td>{{.Revision}}</td></tr>{{end}}
+  </tbody>
+</table>
+</div>
+{{template "pager" .Pager}}
+{{else}}
+<p>No groups yet.</p>
+{{end}}
+
+<h2>Create group</h2>
+{{with .Error}}<p class="status failed" role="alert">{{.}}</p>{{end}}
+<form method="post" action="/admin/groups" class="panel form-panel">
+  <input type="hidden" name="_csrf" value="{{.CSRF}}">
+  <label for="name">Name</label>
+  <input id="name" name="name" maxlength="64" autocomplete="off" required value="{{.Form.Name}}">
+  <button type="submit">Create group</button>
+</form>
+{{template "footer" .}}{{end}}

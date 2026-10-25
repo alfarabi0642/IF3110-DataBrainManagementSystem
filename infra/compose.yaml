@@ -1,0 +1,50 @@
+name: databrain
+
+services:
+  postgres:
+    image: postgres:17.11
+    environment:
+      POSTGRES_USER: databrain_fixture_owner
+      POSTGRES_PASSWORD: ${DATABRAIN_FIXTURE_PASSWORD:-localsecretpassword}
+      POSTGRES_DB: postgres
+      PGDATA: /var/lib/postgresql/data
+      DATABRAIN_FIXTURE_DATA_DIR: /var/lib/postgresql/data
+      DATABRAIN_MIGRATOR_PASSWORD: ${DATABRAIN_MIGRATOR_PASSWORD:-migratorpassword}
+      DATABRAIN_RUNTIME_PASSWORD: ${DATABRAIN_RUNTIME_PASSWORD:-runtimepassword}
+      DATABRAIN_TARGET_PASSWORD: ${DATABRAIN_TARGET_PASSWORD:-targetpassword}
+    ports:
+      - "127.0.0.1:${DATABRAIN_POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - ${DATABRAIN_FIXTURE_DATA_DIR:-pgdata}:/var/lib/postgresql/data
+      - ../backend/dev/setup.sql:/docker-entrypoint-initdb.d/01-setup.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U databrain_fixture_owner -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${DATABRAIN_HTTP_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - APP_ENV=development
+      - APP_ORIGIN=http://localhost:${DATABRAIN_HTTP_PORT:-8080}
+      - HTTP_ADDR=0.0.0.0:8080
+      - PLATFORM_DATABASE_URL=postgres://databrain_runtime@postgres:5432/databrain_dev?sslmode=disable
+      - PLATFORM_DATABASE_PASSWORD=${DATABRAIN_RUNTIME_PASSWORD:-runtimepassword}
+      - MIGRATOR_DATABASE_URL=postgres://databrain_migrator@postgres:5432/databrain_dev?sslmode=disable
+      - MIGRATOR_DATABASE_PASSWORD=${DATABRAIN_MIGRATOR_PASSWORD:-migratorpassword}
+      - APP_SECRET_KEY=${APP_SECRET_KEY:-kThZ7p4VzQx9mYbL2sW1fR8cE5vN0uI3jG6aD4eA7tM=}
+      - TARGET_ALLOWED_HOSTS=postgres,127.0.0.1,localhost
+      - BOOTSTRAP_ADMIN_PASSWORD=${BOOTSTRAP_ADMIN_PASSWORD:-AdminPassword123!}
+      - BOOTSTRAP_ADMIN_USERNAME=${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      - BOOTSTRAP_ADMIN_DISPLAY_NAME=${BOOTSTRAP_ADMIN_DISPLAY_NAME:-Administrator}
+
+volumes:
+  pgdata:

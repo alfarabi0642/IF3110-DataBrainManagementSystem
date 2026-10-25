@@ -1,0 +1,46 @@
+{{/* Daftar metadata koneksi untuk admin; tidak memuat credential. */}}
+{{define "admin_databases"}}{{template "header" .}}
+{{with .Error}}<p class="status failed" role="alert">{{.}} <code>{{$.Code}}</code></p>{{end}}
+{{if .Databases}}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Name</th><th>Server</th><th>Database</th><th>User</th><th>SSL mode</th><th>Status</th></tr></thead>
+  <tbody>
+  {{range .Databases}}
+  <tr>
+    <td><a href="/admin/databases/{{.ID}}">{{.Name}}</a></td>
+    <td>{{.Host}}:{{.Port}}</td><td>{{.DatabaseName}}</td><td>{{.Username}}</td><td>{{.SSLMode}}</td>
+    <td>{{if .IsActive}}Active{{else}}Inactive{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{template "pager" .Pager}}
+{{else}}
+<p>No connections yet. Add the first one below.</p>
+{{end}}
+
+<h2>New connection</h2>
+<form method="post" action="/admin/databases" class="panel form-panel">
+  <input type="hidden" name="_csrf" value="{{.CSRF}}">
+  <label for="name">Name</label>
+  <input id="name" name="name" maxlength="80" required value="{{.Form.Name}}">
+  <label for="host">Host</label>
+  <input id="host" name="host" maxlength="253" required value="{{.Form.Host}}">
+  <label for="port">Port</label>
+  <input id="port" name="port" type="number" min="1" max="65535" required value="{{.Form.Port}}">
+  <label for="database_name">Database name</label>
+  <input id="database_name" name="database_name" maxlength="63" required value="{{.Form.DatabaseName}}">
+  <label for="username">Username</label>
+  <input id="username" name="username" maxlength="63" required autocomplete="off" value="{{.Form.Username}}">
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" required autocomplete="new-password" value="">
+  <p class="muted">The password is stored encrypted and is never shown again.</p>
+  <label for="ssl_mode">SSL mode</label>
+  {{template "sslmode" .Form}}
+
+  <button type="submit">Test and add connection</button>
+</form>
+<p class="muted">The server checks the connection before saving. A failed check saves nothing.</p>
+{{template "footer" .}}{{end}}

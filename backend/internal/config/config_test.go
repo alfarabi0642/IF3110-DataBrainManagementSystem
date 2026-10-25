@@ -16,6 +16,7 @@ func TestLoad(t *testing.T) {
 		{name: "development IPv6", env: map[string]string{"HTTP_ADDR": "[::1]:9000", "APP_ORIGIN": "http://[::1]:9000"}, want: Config{HTTPAddr: "[::1]:9000", AppEnv: "development", AppOrigin: "http://[::1]:9000"}},
 		{name: "test IPv4 loopback", env: map[string]string{"APP_ENV": "test", "APP_ORIGIN": "http://127.0.0.1:8080"}, want: Config{HTTPAddr: defaults.HTTPAddr, AppEnv: "test", AppOrigin: "http://127.0.0.1:8080"}},
 		{name: "production HTTPS", env: map[string]string{"APP_ENV": "production", "APP_ORIGIN": "https://databrain.example", "HTTP_ADDR": ":8080"}, want: Config{HTTPAddr: ":8080", AppEnv: "production", AppOrigin: "https://databrain.example"}},
+		{name: "trusted proxies", env: map[string]string{"TRUSTED_PROXY_CIDRS": " 10.0.0.9/8,2001:db8::1/32,10.0.0.0/8 "}, want: Config{HTTPAddr: defaults.HTTPAddr, AppEnv: defaults.AppEnv, AppOrigin: defaults.AppOrigin, TrustedProxyCIDRs: "10.0.0.0/8,2001:db8::/32"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -61,6 +62,8 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		{"origin loopback suffix", map[string]string{"APP_ORIGIN": "http://localhost.example.com"}, "APP_ORIGIN"},
 		{"production missing origin", map[string]string{"APP_ENV": "production"}, "APP_ORIGIN"},
 		{"production HTTP loopback", map[string]string{"APP_ENV": "production", "APP_ORIGIN": "http://localhost:8080"}, "APP_ORIGIN"},
+		{"invalid trusted proxy", map[string]string{"TRUSTED_PROXY_CIDRS": "127.0.0.1"}, "TRUSTED_PROXY_CIDRS"},
+		{"empty trusted proxy item", map[string]string{"TRUSTED_PROXY_CIDRS": "10.0.0.0/8,"}, "TRUSTED_PROXY_CIDRS"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

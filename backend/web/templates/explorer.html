@@ -1,0 +1,86 @@
+{{/* Katalog dan halaman data target. Semua link dibentuk server; NULL dibedakan dari string kosong. */}}
+{{define "explorer"}}{{template "header" .}}
+{{if not .Schema}}
+<h2>Schemas</h2>
+{{if .Schemas}}
+<ul class="plain tiles schemas">{{range .Schemas}}<li><a href="{{.Href}}">{{.Name}}</a></li>{{end}}</ul>
+{{else}}
+<p>This database has no schemas you can browse.</p>
+{{end}}
+{{else}}
+<p class="crumbs"><a href="{{.AllHref}}">All schemas</a> / {{if .Table}}<a href="{{.SchemaHref}}">{{.Schema}}</a> / {{.Table}}{{else}}{{.Schema}}{{end}}</p>
+{{if not .Table}}
+<h2>Tables in {{.Schema}}</h2>
+{{if .Tables}}
+<ul class="plain tiles tables">{{range .Tables}}<li><a href="{{.Href}}">{{.Name}}</a></li>{{end}}</ul>
+{{else}}
+<p>This schema has no tables.</p>
+{{end}}
+{{else}}
+<nav class="tabs" aria-label="Table views">
+  {{range .Tabs}}<a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a>{{end}}
+</nav>
+{{if eq .Tab "data"}}
+{{with .Data}}
+{{if .Ordering}}<p class="muted form-help">{{.Ordering}}</p>{{end}}
+{{if .Rows}}
+<div class="table-wrap">
+<table>
+  <thead><tr>{{range .Columns}}<th>{{.}}</th>{{end}}</tr></thead>
+  <tbody>{{range .Rows}}<tr>{{range .}}<td class="cell">{{template "cell" .}}</td>{{end}}</tr>{{end}}</tbody>
+</table>
+</div>
+{{else}}
+<p>No rows on this page.</p>
+{{end}}
+{{template "pager" .}}
+{{end}}
+{{else if eq .Tab "columns"}}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>#</th><th>Name</th><th>Type</th><th>Nullable</th><th>Default</th><th>Identity</th><th>Generated</th></tr></thead>
+  <tbody>
+  {{range .ColumnInfo}}
+  <tr>
+    <td>{{.Ordinal}}</td><td>{{.Name}}</td><td>{{.Type}}</td><td>{{template "yesno" .Nullable}}</td>
+    <td>{{with .Default}}<code>{{.}}</code>{{else}}-{{end}}</td>
+    <td>{{with .Identity}}{{.}}{{else}}-{{end}}</td>
+    <td>{{with .Generated}}{{.}}{{else}}-{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{else if eq .Tab "constraints"}}
+{{if .Constraints}}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Type</th><th>Columns</th><th>Definition</th></tr></thead>
+  <tbody>{{range .Constraints}}<tr><td>{{.Kind}}</td><td>{{.Columns}}</td><td><code>{{.Definition}}</code></td></tr>{{end}}</tbody>
+</table>
+</div>
+{{else}}
+<p>This table has no constraints.</p>
+{{end}}
+{{else if eq .Tab "indexes"}}
+{{if .Indexes}}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Name</th><th>Method</th><th>Unique</th><th>Primary</th><th>Valid</th><th>Definition</th></tr></thead>
+  <tbody>
+  {{range .Indexes}}
+  <tr>
+    <td>{{.Name}}</td><td>{{.Method}}</td><td>{{template "yesno" .Unique}}</td>
+    <td>{{template "yesno" .Primary}}</td><td>{{template "yesno" .Valid}}</td><td><code>{{.Definition}}</code></td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{else}}
+<p>This table has no indexes.</p>
+{{end}}
+{{end}}
+{{end}}
+{{end}}
+{{template "footer" .}}{{end}}

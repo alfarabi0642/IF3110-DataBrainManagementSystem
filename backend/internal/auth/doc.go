@@ -1,2 +1,2 @@
-// Package auth is reserved for session and CSRF implementation.
+// Package auth mengatur login, session, dan perlindungan CSRF.
 package auth

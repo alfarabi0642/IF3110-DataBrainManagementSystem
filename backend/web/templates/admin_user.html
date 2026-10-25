@@ -1,0 +1,56 @@
+{{/* Profil user, membership, dan form administrasi. Password tidak masuk data halaman. */}}
+{{define "admin_user"}}{{template "header" .}}
+{{if .Conflict}}
+<p class="status failed" role="alert">This user changed before your update was saved. <a href="/admin/users/{{.UserProfile.ID}}">Open the latest version</a> and try again.</p>
+{{else}}{{with .Error}}<p class="status failed" role="alert">{{.}}</p>{{end}}{{end}}
+
+<dl class="meta">
+  <dt>Username</dt><dd><code>{{.UserProfile.Username}}</code></dd>
+  <dt>Display name</dt><dd>{{.UserProfile.DisplayName}}</dd>
+  <dt>Status</dt><dd>{{if .UserProfile.IsActive}}Active{{else}}Inactive{{end}}</dd>
+  <dt>Platform admin</dt><dd>{{template "yesno" .UserProfile.IsAdmin}}</dd>
+  <dt>Revision</dt><dd>{{.UserProfile.Revision}}</dd>
+</dl>
+
+<h2>Edit user</h2>
+<p class="muted">The username is permanent.</p>
+<form method="post" action="/admin/users/{{.UserProfile.ID}}" class="panel form-panel">
+  <input type="hidden" name="_csrf" value="{{.CSRF}}">
+  <input type="hidden" name="expected_revision" value="{{.Form.ExpectedRevision}}">
+  <label for="display_name">Display name</label>
+  <input id="display_name" name="display_name" maxlength="80" autocomplete="off" required value="{{.Form.DisplayName}}">
+  <label for="is_active">Status</label>
+  <select id="is_active" name="is_active" required>
+    <option value="true"{{if .Form.IsActive}} selected{{end}}>Active</option>
+    <option value="false"{{if not .Form.IsActive}} selected{{end}}>Inactive</option>
+  </select>
+  <label for="is_platform_admin">Account type</label>
+  <select id="is_platform_admin" name="is_platform_admin" required>
+    <option value="false"{{if not .Form.IsAdmin}} selected{{end}}>Regular user</option>
+    <option value="true"{{if .Form.IsAdmin}} selected{{end}}>Platform admin</option>
+  </select>
+  <p class="form-help">Deactivation or administrator demotion signs this user out. Promotion or reactivation requires the user to sign in again.</p>
+  <button type="submit">Save user</button>
+</form>
+
+<h2>Reset password</h2>
+<form method="post" action="/admin/users/{{.UserProfile.ID}}/password" class="panel form-panel">
+  <input type="hidden" name="_csrf" value="{{.CSRF}}">
+  <input type="hidden" name="expected_revision" value="{{.UserProfile.Revision}}">
+  <label for="password">New password</label>
+  <input id="password" name="password" type="password" autocomplete="new-password" aria-describedby="password-reset-help" required>
+  <p id="password-reset-help" class="form-help">Resetting the password immediately signs this user out of every session.</p>
+  <button type="submit">Reset password</button>
+</form>
+
+<h2>Groups</h2>
+{{if .Groups}}
+<div class="table-wrap">
+<table>
+  <caption class="sr-only">Groups containing this user</caption>
+  <thead><tr><th>Group</th><th>Status</th></tr></thead>
+  <tbody>{{range .Groups}}<tr><td><a href="/admin/groups/{{.ID}}">{{.Name}}</a></td><td>{{if .IsActive}}Active{{else}}Inactive{{end}}</td></tr>{{end}}</tbody>
+</table>
+</div>
+{{else}}<p>This user is not a member of any group.</p>{{end}}
+{{template "footer" .}}{{end}}

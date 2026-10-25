@@ -1,0 +1,95 @@
+{{/* Detail group, membership, dan grant. Form konflik mempertahankan input pengguna. */}}
+{{define "admin_group"}}{{template "header" .}}
+{{if .Conflict}}
+<p class="status failed" role="alert">This group changed before your update was saved. <a href="/admin/groups/{{.GroupProfile.ID}}">Open the latest version</a> and try again.</p>
+{{else}}{{with .Error}}<p class="status failed" role="alert">{{.}}</p>{{end}}{{end}}
+
+<dl class="meta">
+  <dt>Name</dt><dd>{{.GroupProfile.Name}}</dd>
+  <dt>Status</dt><dd>{{if .GroupProfile.IsActive}}Active{{else}}Inactive{{end}}</dd>
+  <dt>Revision</dt><dd>{{.GroupProfile.Revision}}</dd>
+</dl>
+
+<h2>Edit group</h2>
+<form method="post" action="/admin/groups/{{.GroupProfile.ID}}" class="panel form-panel">
+  <input type="hidden" name="_csrf" value="{{.CSRF}}">
+  <input type="hidden" name="expected_revision" value="{{.Form.ExpectedRevision}}">
+  <label for="name">Name</label>
+  <input id="name" name="name" maxlength="64" autocomplete="off" required value="{{.Form.Name}}">
+  <label for="is_active">Status</label>
+  <select id="is_active" name="is_active" required>
+    <option value="true"{{if .Form.IsActive}} selected{{end}}>Active</option>
+    <option value="false"{{if not .Form.IsActive}} selected{{end}}>Inactive</option>
+  </select>
+  <p class="form-help">Deactivating a group signs out its members. Reactivating it requires them to sign in again.</p>
+  <button type="submit">Save group</button>
+</form>
+
+<h2>Members</h2>
+{{if .Members}}
+<div class="table-wrap">
+<table>
+  <caption class="sr-only">Current group members</caption>
+  <thead><tr><th>Username</th><th>Display name</th><th>Status</th><th>Action</th></tr></thead>
+  <tbody>
+  {{range .Members}}
+  <tr>
+    <td><a href="/admin/users/{{.ID}}">{{.Username}}</a></td><td>{{.DisplayName}}</td><td>{{if .IsActive}}Active{{else}}Inactive{{end}}</td>
+    <td><form class="table-action" method="post" action="/admin/groups/{{$.GroupProfile.ID}}/members/{{.ID}}/remove"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><button type="submit" class="quiet danger-text">Remove</button></form></td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{else}}<p>This group has no members.</p>{{end}}
+
+{{if not .GroupProfile.IsActive}}
+<p class="muted">No active users can be added while this group is inactive. Activate it first; existing members can still be removed.</p>
+{{else if .MemberChoices}}
+<form method="post" action="/admin/groups/{{.GroupProfile.ID}}/members" class="panel form-panel compact-form">
+  <input type="hidden" name="_csrf" value="{{.CSRF}}">
+  <label for="user_id">Add active user</label>
+  <select id="user_id" name="user_id" required>
+    <option value="">Choose a user</option>
+    {{range .MemberChoices}}<option value="{{.ID}}">{{.DisplayName}} ({{.Username}})</option>{{end}}
+  </select>
+  <button type="submit">Add member</button>
+</form>
+{{else}}<p class="muted">No active users are available to add.</p>{{end}}
+
+<h2>Database grants</h2>
+{{if .Grants}}
+<div class="table-wrap">
+<table>
+  <caption class="sr-only">Current database grants</caption>
+  <thead><tr><th>Database</th><th>Access</th><th>Action</th></tr></thead>
+  <tbody>
+  {{range .Grants}}
+  <tr>
+    <td>{{.DatabaseName}}</td><td>{{if eq .Access "view_edit"}}View and edit{{else}}View only{{end}}</td>
+    <td><form class="table-action" method="post" action="/admin/groups/{{$.GroupProfile.ID}}/databases/{{.DatabaseID}}/remove"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><button type="submit" class="quiet danger-text">Remove</button></form></td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{else}}<p>This group has no database grants.</p>{{end}}
+
+{{if .DatabaseChoices}}
+<form method="post" action="/admin/groups/{{.GroupProfile.ID}}/databases" class="panel form-panel compact-form">
+  <input type="hidden" name="_csrf" value="{{.CSRF}}">
+  <label for="database_id">Set database grant</label>
+  <select id="database_id" name="database_id" required>
+    <option value="">Choose a database</option>
+    {{range .DatabaseChoices}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+  </select>
+  <label for="access_level">Access</label>
+  <select id="access_level" name="access_level" required>
+    <option value="view_only">View only</option>
+    <option value="view_edit">View and edit</option>
+  </select>
+  {{if not .GroupProfile.IsActive}}<p class="form-help">While this group is inactive, only grant removal or a downgrade is accepted. Activate it before adding or upgrading access.</p>{{end}}
+  <button type="submit">Set grant</button>
+</form>
+{{else}}<p class="muted">No active databases are available for a grant.</p>{{end}}
+{{template "footer" .}}{{end}}

@@ -1,2 +1,2 @@
-// Package migration is reserved for drafts, execution, and history.
+// Package migration mengelola draft, eksekusi transaksional, riwayat, dan recovery migration.
 package migration
