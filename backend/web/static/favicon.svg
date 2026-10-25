@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <style>
+    .planet { fill: #151412; } .gap { stroke: #f4f2ec; }
+    @media (prefers-color-scheme: dark) { .planet { fill: #ecebe5; } .gap { stroke: #0e0e0d; } }
+  </style>
+  <circle class="planet" cx="14.5" cy="17.5" r="12.5"/>
+  <circle class="gap" cx="24" cy="8" r="5.5" fill="#2a3fff" stroke-width="3"/>
+</svg>
