@@ -27,7 +27,7 @@ The password is never part of Form, so its input always renders empty.
 {{end}}
 
 <h2>New connection</h2>
-<form method="post" action="/admin/databases">
+<form method="post" action="/admin/databases" class="panel form-panel">
   <input type="hidden" name="_csrf" value="{{.CSRF}}">
   <label for="name">Name</label>
   <input id="name" name="name" maxlength="80" required value="{{.Form.Name}}">

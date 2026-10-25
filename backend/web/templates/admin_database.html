@@ -49,7 +49,7 @@ made after the current values above were shown.
 
 <h2>Edit connection</h2>
 <p class="muted">Host, port and database name cannot be changed. Add a new connection for another server.</p>
-<form method="post" action="/admin/databases/{{.Target.ID}}">
+<form method="post" action="/admin/databases/{{.Target.ID}}" class="panel form-panel">
   <input type="hidden" name="_csrf" value="{{.CSRF}}">
   <input type="hidden" name="expected_revision" value="{{if .Conflict}}{{.Target.ConfigRevision}}{{else}}{{.Form.ExpectedRevision}}{{end}}">
   <label for="name">Name</label>
@@ -68,5 +68,5 @@ made after the current values above were shown.
   </select>
   <button type="submit">{{if .Conflict}}Save over the current version{{else}}Save changes{{end}}</button>
 </form>
-<p><a href="/admin/databases">Back to connections</a></p>
+<p class="back"><a href="/admin/databases">Back to connections</a></p>
 {{template "footer" .}}{{end}}
