@@ -25,7 +25,7 @@
   <input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32" required{{if not .Error}} autofocus{{end}} value="{{.Username}}">
   <label for="password">Password</label>
   <input id="password" name="password" type="password" autocomplete="current-password" aria-describedby="password-help" required{{if .Error}} autofocus{{end}}>
-  <p id="password-help" class="form-help">Passwords contain 12–128 UTF-8 bytes and are never redisplayed.</p>
+  <p id="password-help" class="form-help">Passwords contain 12–128 characters and are never redisplayed.</p>
   <button type="submit">Log in</button>
 </form>
 </div>
