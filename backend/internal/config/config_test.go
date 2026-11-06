@@ -13,6 +13,7 @@ func TestLoad(t *testing.T) {
 		want Config
 	}{
 		{name: "defaults", want: defaults},
+		{name: "asset paths", env: map[string]string{"SPA_DIR": "/app/frontend", "STATIC_DIR": "/app/web/static"}, want: Config{HTTPAddr: defaults.HTTPAddr, AppEnv: defaults.AppEnv, AppOrigin: defaults.AppOrigin, SPADir: "/app/frontend", StaticDir: "/app/web/static"}},
 		{name: "development IPv6", env: map[string]string{"HTTP_ADDR": "[::1]:9000", "APP_ORIGIN": "http://[::1]:9000"}, want: Config{HTTPAddr: "[::1]:9000", AppEnv: "development", AppOrigin: "http://[::1]:9000"}},
 		{name: "test IPv4 loopback", env: map[string]string{"APP_ENV": "test", "APP_ORIGIN": "http://127.0.0.1:8080"}, want: Config{HTTPAddr: defaults.HTTPAddr, AppEnv: "test", AppOrigin: "http://127.0.0.1:8080"}},
 		{name: "production HTTPS", env: map[string]string{"APP_ENV": "production", "APP_ORIGIN": "https://databrain.example", "HTTP_ADDR": ":8080"}, want: Config{HTTPAddr: ":8080", AppEnv: "production", AppOrigin: "https://databrain.example"}},
@@ -20,6 +21,10 @@ func TestLoad(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.want.SPADir == "" {
+				tt.want.SPADir = "../frontend/dist"
+				tt.want.StaticDir = "web/static"
+			}
 			got, err := load(func(key string) (string, bool) { v, ok := tt.env[key]; return v, ok })
 			if err != nil || got != tt.want {
 				t.Fatalf("load() = %+v, %v; want %+v", got, err, tt.want)
@@ -36,6 +41,8 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 	}{
 		{"unknown environment", map[string]string{"APP_ENV": "staging"}, "APP_ENV"},
 		{"empty environment", map[string]string{"APP_ENV": ""}, "APP_ENV"},
+		{"empty frontend directory", map[string]string{"SPA_DIR": ""}, "SPA_DIR"},
+		{"empty static directory", map[string]string{"STATIC_DIR": " "}, "STATIC_DIR"},
 		{"empty address", map[string]string{"HTTP_ADDR": ""}, "HTTP_ADDR"},
 		{"address missing port", map[string]string{"HTTP_ADDR": "localhost"}, "HTTP_ADDR"},
 		{"address URL", map[string]string{"HTTP_ADDR": "http://localhost:8080"}, "HTTP_ADDR"},

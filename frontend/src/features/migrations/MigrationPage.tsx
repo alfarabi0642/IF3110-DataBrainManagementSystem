@@ -58,8 +58,9 @@ export function MigrationPage({ session }: { session: Session }) {
   const title = review ? reviewError ? 'Check migration request' : 'Review migration' : history ? 'Migration history' : attemptID ? 'Migration result' : draftID ? 'Edit draft' : 'Drafts';
   const loading = !response && (query.isPending || ((notFound || reviewError) && metadata.isPending));
   const error = (notFound || reviewError) ? metadata.error : response ? null : query.error;
+  const beforeScope = error instanceof ApiError && ['INVALID_REQUEST', 'DATABASE_NOT_FOUND', 'DATABASE_ACCESS_DENIED'].includes(error.code);
   if (!loading && !error && review) return <Review key={key} base={base} draftID={draftID!} session={session} review={result ?? (database ? { database, draft: null, expected_revision: params.get('expected_revision')!, request_key: params.get('request_key')!, receipt: null } : undefined)} search={search} readError={reviewError ? query.error : undefined} />;
-  return <Layout session={session} database={database} title={error ? 'Error' : title}>
+  return <Layout session={beforeScope ? undefined : session} database={database} title={error ? 'Error' : title}>
     {response && query.error && <FormError error={query.error} />}
     {loading ? <p className="page-intro" role="status">Loading…</p> : error ? <Failure error={error} /> :
       history ? <History key={key} base={base} attempts={result?.attempts ?? []} page={response?.page} searchKey={searchKey ?? ''} /> :

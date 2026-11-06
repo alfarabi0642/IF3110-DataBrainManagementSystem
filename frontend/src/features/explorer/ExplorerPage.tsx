@@ -42,7 +42,10 @@ export function ExplorerPage({ session }: { session: Session }) {
   if (query.isPending || query.error instanceof ApiError && query.error.status === 401) {
     return <Layout session={session} title="Explorer"><p className="page-intro" role="status">Loading…</p></Layout>;
   }
-  if (query.isError) return <Layout session={session} title="Error"><Failure error={query.error} /></Layout>;
+  if (query.isError) {
+    const beforeScope = query.error instanceof ApiError && ['INVALID_REQUEST', 'DATABASE_NOT_FOUND', 'DATABASE_ACCESS_DENIED'].includes(query.error.code);
+    return <Layout session={beforeScope ? undefined : session} title="Error"><Failure error={query.error} /></Layout>;
+  }
   const result = query.data.data;
   const limit = query.data.page?.limit ?? Number(new URLSearchParams(search).get('limit') ?? 50);
   const href = (schema = '', table = '', tab = 'data') => {

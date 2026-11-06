@@ -1,0 +1,14 @@
+.git
+.tmp
+.tools
+.al-work
+docs
+DEMO
+report.md
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+**/*.exe
+**/test-results
+**/playwright-report

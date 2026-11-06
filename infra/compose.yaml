@@ -25,8 +25,8 @@ services:
 
   app:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
     ports:
       - "127.0.0.1:${DATABRAIN_HTTP_PORT:-8080}:8080"
     depends_on:

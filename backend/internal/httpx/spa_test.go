@@ -15,13 +15,14 @@ func TestSPAFallbackBoundaries(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html>SPA entry</html>"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Mkdir(filepath.Join(dir, "assets"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "assets", "app.js"), []byte("console.log('app');"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	mux := NewRouter(func(context.Context) bool { return true })
-	mux.HandleFunc("GET /admin/users", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("legacy users")) })
-	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("legacy login")) })
-	mux.HandleFunc("GET /databases/{database_id}/explorer", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("legacy explorer")) })
-	mux.HandleFunc("GET /databases/{database_id}/drafts", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("legacy drafts")) })
-	mux.HandleFunc("POST /logout", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })
-	handler, root, err := SPA(mux, mux, dir)
+	handler, root, err := SPA(mux, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,14 +34,19 @@ func TestSPAFallbackBoundaries(t *testing.T) {
 	}{
 		{"GET", "/", 200, true}, {"GET", "/databases?limit=1", 200, true},
 		{"GET", "/login", 200, true}, {"HEAD", "/login", 200, false},
+		{"GET", "/not-a-real-route", 200, true}, {"HEAD", "/not-a-real-route", 200, false},
 		{"GET", "/admin/unknown", 200, true}, {"GET", "/admin/users", 200, true},
 		{"GET", "/databases/target/explorer?schema=public&table=items&offset=2", 200, true},
 		{"HEAD", "/databases/target/explorer", 200, false}, {"GET", "/databases/target/drafts", 200, true},
 		{"GET", "/static/missing.css", 404, false}, {"GET", "/assets/missing.js", 404, false},
+		{"GET", "/assets/app.js", 200, false}, {"HEAD", "/assets/app.js", 200, false},
+		{"GET", "/assets/../index.html", 404, false}, {"GET", "/assets/", 404, false},
+		{"GET", "/assets/%2e%2e/index.html", 404, false},
 		{"GET", "/databases/missing.js", 404, false}, {"GET", "/missing.svg", 404, false},
 		{"GET", "/api/missing", 404, false}, {"GET", "/healthz", 200, false},
-		{"GET", "/healthz/missing", 404, false}, {"POST", "/databases", 404, false},
-		{"POST", "/admin/unknown", 404, false}, {"POST", "/logout", 204, false},
+		{"GET", "/api", 404, false}, {"GET", "/assets", 404, false},
+		{"GET", "/healthz/missing", 404, false}, {"POST", "/databases", 405, false},
+		{"POST", "/admin/unknown", 405, false}, {"POST", "/logout", 404, false},
 		{"POST", "/assets/missing.js", 405, false}, {"HEAD", "/databases", 200, false},
 	} {
 		w := httptest.NewRecorder()
@@ -51,16 +57,12 @@ func TestSPAFallbackBoundaries(t *testing.T) {
 	}
 }
 
-func TestSPAWithoutBuildPreservesLegacy(t *testing.T) {
+func TestSPARequiresBuild(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /databases", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("legacy")) })
-	handler, root, err := SPA(mux, mux, filepath.Join(t.TempDir(), "absent"))
-	if err != nil || root != nil {
-		t.Fatalf("unexpected build dependency: %v", err)
-	}
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, httptest.NewRequest("GET", "/databases", nil))
-	if w.Body.String() != "legacy" {
-		t.Fatal("legacy route was lost")
+	for _, dir := range []string{filepath.Join(t.TempDir(), "absent"), t.TempDir()} {
+		handler, root, err := SPA(mux, dir)
+		if err == nil || handler != nil || root != nil {
+			t.Fatal("missing SPA build accepted")
+		}
 	}
 }

@@ -86,7 +86,14 @@ type apiScope struct {
 	database  databaseDTO
 }
 
-// RegisterAPI mempertahankan runner sinkron, replay, dan snapshot yang sama dengan form HTML.
+func NewAPIHandler(store *DraftStore, runner *Runner, authorizer access.Authorizer) (*Handler, error) {
+	if store == nil || store.pool == nil || runner == nil || runner.store == nil || runner.store.pool != store.pool || authorizer == nil {
+		return nil, draftFailure(problem.InternalError)
+	}
+	return &Handler{store: store, runner: runner, authorizer: authorizer}, nil
+}
+
+// RegisterAPI mempertahankan runner sinkron, replay, dan snapshot tersimpan.
 func (h *Handler) RegisterAPI(mux *http.ServeMux, middleware *auth.Middleware) {
 	register := func(pattern string, action access.Action, post bool, fn func(http.ResponseWriter, *http.Request, apiScope)) {
 		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

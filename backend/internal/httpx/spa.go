@@ -1,30 +1,32 @@
 package httpx
 
 import (
-	"errors"
-	"io/fs"
 	"net/http"
 	"os"
 	"path"
 	"strings"
 )
 
-// SPA mempertahankan route lama sampai consumer React tersedia.
-func SPA(mux *http.ServeMux, legacy http.Handler, dir string) (http.Handler, *os.Root, error) {
+// SPA hanya memberi entry HTML pada browser route; build yang hilang menggagalkan startup.
+func SPA(mux *http.ServeMux, dir string) (http.Handler, *os.Root, error) {
 	root, err := os.OpenRoot(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return legacy, nil, nil
-	}
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, err := root.Stat("index.html"); err != nil {
+	if info, err := root.Stat("index.html"); err != nil || !info.Mode().IsRegular() {
 		root.Close()
+		if err == nil {
+			err = os.ErrInvalid
+		}
 		return nil, nil, err
 	}
 	assets := http.FileServerFS(root.FS())
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/assets/") {
+			if path.Clean(r.URL.Path) != r.URL.Path || strings.Contains(r.URL.Path, "\\") {
+				http.NotFound(w, r)
+				return
+			}
 			if r.Method != http.MethodGet && r.Method != http.MethodHead {
 				w.Header().Set("Allow", "GET, HEAD")
 				http.Error(w, "Method not allowed.", http.StatusMethodNotAllowed)
@@ -37,17 +39,22 @@ func SPA(mux *http.ServeMux, legacy http.Handler, dir string) (http.Handler, *os
 			assets.ServeHTTP(w, r)
 			return
 		}
-		_, pattern := mux.Handler(r)
 		application := r.URL.Path == "/" || r.URL.Path == "/login" || r.URL.Path == "/databases" ||
 			strings.HasPrefix(r.URL.Path, "/admin/") || strings.HasPrefix(r.URL.Path, "/databases/")
-		migrated := r.URL.Path == "/" || r.URL.Path == "/login" || r.URL.Path == "/databases" ||
-			strings.HasPrefix(pattern, "GET /admin/") || strings.HasPrefix(pattern, "GET /databases/{database_id}/")
-		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && application && path.Ext(r.URL.Path) == "" &&
-			path.Clean(r.URL.Path) == r.URL.Path && (migrated || pattern == "") {
-			pageHeaders(w, r)
-			http.ServeFileFS(w, r, root.FS(), "index.html")
-			return
+		reserved := IsAPI(r) || r.URL.Path == "/assets" || r.URL.Path == "/static" ||
+			strings.HasPrefix(r.URL.Path, "/static/") || r.URL.Path == "/healthz" || strings.HasPrefix(r.URL.Path, "/healthz/")
+		if !reserved && path.Ext(r.URL.Path) == "" && path.Clean(r.URL.Path) == r.URL.Path && !strings.Contains(r.URL.Path, "\\") {
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+				pageHeaders(w, r)
+				http.ServeFileFS(w, r, root.FS(), "index.html")
+				return
+			}
+			if application {
+				w.Header().Set("Allow", "GET, HEAD")
+				http.Error(w, "Method not allowed.", http.StatusMethodNotAllowed)
+				return
+			}
 		}
-		legacy.ServeHTTP(w, r)
+		mux.ServeHTTP(w, r)
 	}), root, nil
 }
