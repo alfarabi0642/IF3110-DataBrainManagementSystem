@@ -148,6 +148,8 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 			return 422, p.Code, "A column cannot be displayed as text."
 		case problem.SessionInvalid:
 			return 401, p.Code, "Authentication required."
+		case problem.ReauthRequired:
+			return 401, p.Code, "Verify your password to continue."
 		case problem.AuthBusy:
 			return 503, p.Code, "Authentication is busy. Try again."
 		case problem.CSRFInvalid, problem.OriginRejected:
@@ -211,6 +213,10 @@ func (renderer *Renderer) RenderError(w http.ResponseWriter, r *http.Request, la
 
 // WriteError dipakai sebelum renderer atau session tersedia dan tidak menampilkan error mentah.
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
+	if IsAPI(r) {
+		WriteJSONError(w, r, err)
+		return
+	}
 	var p *problem.Error
 	if errors.As(err, &p) && p != nil && p.Code == problem.SessionInvalid {
 		_ = SeeOther(w, r, "/login")

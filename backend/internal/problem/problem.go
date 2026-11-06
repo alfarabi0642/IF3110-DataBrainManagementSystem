@@ -24,6 +24,7 @@ const (
 	UserNotFound           Code = "USER_NOT_FOUND"
 	GroupNotFound          Code = "GROUP_NOT_FOUND"
 	SessionInvalid         Code = "SESSION_INVALID"
+	ReauthRequired         Code = "REAUTH_REQUIRED"
 	CSRFInvalid            Code = "CSRF_INVALID"
 	OriginRejected         Code = "ORIGIN_REJECTED"
 	AdminRequired          Code = "ADMIN_REQUIRED"

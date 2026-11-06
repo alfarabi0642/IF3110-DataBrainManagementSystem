@@ -1,6 +1,6 @@
 # DataBrain Management System
 
-Aplikasi Go dengan HTML dari server untuk mengatur akses PostgreSQL, melihat schema/data, dan menjalankan migration transaksional dengan riwayat permanen. Alur inti dapat dipakai tanpa JavaScript.
+Aplikasi Go untuk mengatur akses PostgreSQL, melihat schema/data, dan menjalankan migration transaksional dengan riwayat permanen. Shell React menampilkan daftar Databases; login/logout, administrasi, explorer dan migration masih memakai halaman server.
 
 ## Menjalankan aplikasi
 
@@ -15,6 +15,21 @@ docker compose -f infra/compose.yaml up -d --build --wait
 Buka [localhost:8080](http://localhost:8080). Akun development awal adalah `admin`, password `AdminPassword123!`. Nilai contoh ini hanya untuk fixture lokal. Runner hanya menampilkan URL dan username. `APP_SECRET_KEY` harus tetap sama saat restart agar credential target dan token session tetap dapat dibaca.
 
 ## Pengujian
+
+Frontend memerlukan Node.js 22.12+ (atau 20.19+) dan npm. Dari `frontend/`:
+
+```sh
+npm ci
+npm run typecheck
+npm run test:run
+npm run build
+```
+
+Saat Go dijalankan dari `backend/`, build `frontend/dist` dilayani pada origin yang sama. Hanya `/` dan `/databases` yang dipindahkan ke React; link fitur lain tetap membuka halaman server. Tanpa build frontend, halaman M1 tetap tersedia. Build output dan `node_modules` tidak disimpan di Git. Image Docker saat ini masih memakai halaman server.
+
+Untuk development dengan Vite, jalankan backend dengan `APP_ORIGIN=http://127.0.0.1:5173`, lalu `npm run dev` dari `frontend/` dan buka origin tersebut. Proxy meneruskan API, aset dan halaman server ke `http://127.0.0.1:8080`; atur `API_PROXY_TARGET` bila alamat backend berbeda. Proxy mempertahankan Origin browser; pemeriksaan session/CSRF tetap aktif. Jangan memakai origin backend untuk login ketika konfigurasi Origin menunjuk Vite.
+
+API yang tersedia adalah `GET /api/session` dan `GET /api/databases?limit=50&offset=0`. Success memakai `{data,request_id}` (list menambah `page`); error memakai `{error:{code,message},request_id}` dengan HTTP status sebenarnya. API tidak melakukan redirect login. Session tetap cookie HttpOnly; token CSRF dari bootstrap hanya disimpan dalam memory browser. Mutasi fitur saat ini tetap melalui form server.
 
 Pemeriksaan cepat dari `backend/` memerlukan Go 1.27.3:
 

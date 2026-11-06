@@ -47,7 +47,7 @@ func (m *Middleware) RequireSession(next http.Handler) http.Handler {
 		token, err := m.service.cookieValue(r)
 		if err != nil {
 			http.SetCookie(w, m.service.ClearCookie())
-			_ = httpx.SeeOther(w, r, "/login")
+			rejectSession(w, r, problem.SessionInvalid)
 			return
 		}
 		state, replacement, err := m.service.Validate(r.Context(), token, false)
@@ -57,10 +57,10 @@ func (m *Middleware) RequireSession(next http.Handler) http.Handler {
 				if replacement != "" {
 					http.SetCookie(w, m.service.Cookie(replacement, state.AbsoluteExpiresAt))
 				}
-				_ = httpx.SeeOther(w, r, "/login")
+				rejectSession(w, r, problem.ReauthRequired)
 			case problemIs(err, problem.SessionInvalid):
 				http.SetCookie(w, m.service.ClearCookie())
-				_ = httpx.SeeOther(w, r, "/login")
+				rejectSession(w, r, problem.SessionInvalid)
 			default:
 				httpx.WriteError(w, r, err)
 			}
@@ -70,11 +70,19 @@ func (m *Middleware) RequireSession(next http.Handler) http.Handler {
 			http.SetCookie(w, m.service.Cookie(replacement, state.AbsoluteExpiresAt))
 		}
 		if state.Kind != AuthenticatedSession {
-			_ = httpx.SeeOther(w, r, "/login")
+			rejectSession(w, r, problem.SessionInvalid)
 			return
 		}
 		next.ServeHTTP(w, withSession(r, state, true))
 	})
+}
+
+func rejectSession(w http.ResponseWriter, r *http.Request, code problem.Code) {
+	if httpx.IsAPI(r) {
+		httpx.WriteJSONError(w, r, sessionFailure(code))
+		return
+	}
+	_ = httpx.SeeOther(w, r, "/login")
 }
 
 // RequireCSRF membaca form URL-encoded dengan batas ukuran. POST terlindungi membungkusnya dengan

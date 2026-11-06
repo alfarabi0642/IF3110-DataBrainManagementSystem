@@ -99,6 +99,9 @@ func run(logger *slog.Logger) (err error) {
 	if err != nil {
 		return err
 	}
+	apiMux := http.NewServeMux()
+	middleware.RegisterSessionAPI(apiMux)
+	provider.RegisterListAPI(apiMux, middleware)
 	authorizer, err := access.NewAuthorizer(db.Pool)
 	if err != nil {
 		return err
@@ -154,6 +157,22 @@ func run(logger *slog.Logger) (err error) {
 	if assets != nil {
 		defer assets.Close()
 	}
+	application, frontend, err := httpx.SPA(mux, httpx.ErrorPages(renderer, mux), "../frontend/dist")
+	if err != nil {
+		logger.Error("unable to open frontend build")
+		return err
+	}
+	if frontend != nil {
+		defer frontend.Close()
+	}
+	api := httpx.APIHandler(apiMux)
+	routes := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if httpx.IsAPI(r) {
+			api.ServeHTTP(w, r)
+			return
+		}
+		application.ServeHTTP(w, r)
+	})
 	listener, err := net.Listen("tcp", cfg.HTTPAddr)
 	if err != nil {
 		return err
@@ -169,7 +188,7 @@ func run(logger *slog.Logger) (err error) {
 		<-cleanupDone
 	}()
 	logger.Info("HTTP server listening; platform ready")
-	return serveHTTP(ctx, newServer(cfg, httpx.Middleware(logger, httpx.ErrorPages(renderer, mux))), listener, db.Lost())
+	return serveHTTP(ctx, newServer(cfg, httpx.Middleware(logger, routes)), listener, db.Lost())
 }
 
 func runSessionCleanup(ctx context.Context, interval time.Duration, cleanup func(context.Context) error, logger *slog.Logger) {
