@@ -23,7 +23,7 @@ foreach ($entry in @{
     }
 }
 $env:APP_ENV = 'development'
-$env:APP_ORIGIN = "http://localhost:$env:DATABRAIN_HTTP_PORT"
+if (-not $env:APP_ORIGIN) { $env:APP_ORIGIN = "http://localhost:$env:DATABRAIN_HTTP_PORT" }
 $env:HTTP_ADDR = "127.0.0.1:$env:DATABRAIN_HTTP_PORT"
 $env:PLATFORM_DATABASE_URL = "postgres://databrain_runtime@127.0.0.1:$env:DATABRAIN_POSTGRES_PORT/databrain_dev?sslmode=disable"
 $env:PLATFORM_DATABASE_PASSWORD = $env:DATABRAIN_RUNTIME_PASSWORD

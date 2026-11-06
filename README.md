@@ -1,6 +1,6 @@
 # DataBrain Management System
 
-Aplikasi Go untuk mengatur akses PostgreSQL, melihat schema/data, dan menjalankan migration transaksional dengan riwayat permanen. Shell React menampilkan daftar Databases; login/logout, administrasi, explorer dan migration masih memakai halaman server.
+Aplikasi Go untuk mengatur akses PostgreSQL, melihat schema/data, dan menjalankan migration transaksional dengan riwayat permanen. React menangani login/logout/reauth dan daftar Databases; administrasi, explorer dan migration masih memakai halaman server.
 
 ## Menjalankan aplikasi
 
@@ -25,11 +25,13 @@ npm run test:run
 npm run build
 ```
 
-Saat Go dijalankan dari `backend/`, build `frontend/dist` dilayani pada origin yang sama. Hanya `/` dan `/databases` yang dipindahkan ke React; link fitur lain tetap membuka halaman server. Tanpa build frontend, halaman M1 tetap tersedia. Build output dan `node_modules` tidak disimpan di Git. Image Docker saat ini masih memakai halaman server.
+Saat Go dijalankan dari `backend/`, build `frontend/dist` dilayani pada origin yang sama. Route `/`, `/login` dan `/databases` memakai React; link fitur lain tetap membuka halaman server. Tanpa build frontend, halaman M1 tetap tersedia. Build output dan `node_modules` tidak disimpan di Git. Image Docker saat ini masih memakai halaman server.
 
-Untuk development dengan Vite, jalankan backend dengan `APP_ORIGIN=http://127.0.0.1:5173`, lalu `npm run dev` dari `frontend/` dan buka origin tersebut. Proxy meneruskan API, aset dan halaman server ke `http://127.0.0.1:8080`; atur `API_PROXY_TARGET` bila alamat backend berbeda. Proxy mempertahankan Origin browser; pemeriksaan session/CSRF tetap aktif. Jangan memakai origin backend untuk login ketika konfigurasi Origin menunjuk Vite.
+Untuk development dengan Vite, jalankan backend dengan `APP_ORIGIN=http://127.0.0.1:5173`, lalu `npm run dev` dari `frontend/` dan buka origin tersebut. Runner `run-dev.ps1`/`run-dev.sh` mempertahankan override `APP_ORIGIN` dari environment; default tanpa override tetap `http://localhost:8080`. Proxy meneruskan API, aset dan halaman server ke `http://127.0.0.1:8080`; atur `API_PROXY_TARGET` bila alamat backend berbeda. Proxy mempertahankan Origin browser; pemeriksaan session/CSRF tetap aktif. Jangan memakai origin backend untuk login ketika konfigurasi Origin menunjuk Vite.
 
-API yang tersedia adalah `GET /api/session` dan `GET /api/databases?limit=50&offset=0`. Success memakai `{data,request_id}` (list menambah `page`); error memakai `{error:{code,message},request_id}` dengan HTTP status sebenarnya. API tidak melakukan redirect login. Session tetap cookie HttpOnly; token CSRF dari bootstrap hanya disimpan dalam memory browser. Mutasi fitur saat ini tetap melalui form server.
+API yang tersedia adalah `GET /api/session`, `POST /api/login`, `POST /api/logout` dan `GET /api/databases?limit=50&offset=0`. Success memakai `{data,request_id}` (list menambah `page`); error memakai `{error:{code,message},request_id}` dengan HTTP status sebenarnya. API tidak melakukan redirect login. Bootstrap memberi state `anonymous`, `authenticated` atau `reauth_required`, identitas minimum, `csrf_token` dan `absolute_expires_at`; session tetap cookie HttpOnly.
+
+Login menerima JSON `{username,password}`, logout menerima `{}`. Keduanya memerlukan tepat satu header `X-CSRF-Token` dari bootstrap dan Origin yang sama dengan `APP_ORIGIN`. Login gagal memakai 401 `INVALID_CREDENTIALS`, rate limit 429 `LOGIN_RATE_LIMITED` dengan `Retry-After`, session invalid 401 `SESSION_INVALID`, dan reauth 401 `REAUTH_REQUIRED` pada API terlindungi. Client membaca ulang bootstrap setelah mutasi, membersihkan protected cache saat logout/pergantian identitas atau family, dan tidak mengulang mutasi otomatis saat session/CSRF kedaluwarsa. Token CSRF hanya disimpan dalam memory browser. Mutasi fitur lain tetap melalui form server.
 
 Pemeriksaan cepat dari `backend/` memerlukan Go 1.27.3:
 

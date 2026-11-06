@@ -1,14 +1,8 @@
-import { useEffect, useRef, type ReactNode } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router';
 import { apiFetch, ApiError, type Page } from '../lib/api';
-
-type Session = {
-  state: 'anonymous' | 'authenticated' | 'reauth_required';
-  user: { id: string; username: string; display_name: string; is_platform_admin: boolean } | null;
-  csrf_token: string;
-  absolute_expires_at: string;
-};
+import { refreshSession, sessionQuery, type Session } from '../lib/session';
 
 type Database = {
   id: string;
@@ -51,10 +45,7 @@ function Layout({ session, title, children }: { session?: Session; title: string
         {user && <div className="account">
           <span className="avatar" aria-hidden="true">{user.display_name || user.username}</span>
           <span className="who">{user.display_name} <span className="muted">{user.username}</span></span>
-          <form method="post" action="/logout">
-            <input type="hidden" name="_csrf" value={session?.csrf_token ?? ''} />
-            <button type="submit" className="quiet">Log out</button>
-          </form>
+          <LogoutForm session={session!} />
         </div>}
       </header>
       <main id="main" ref={main} tabIndex={-1}>
@@ -79,9 +70,72 @@ function Failure({ error }: { error: unknown }) {
   </>;
 }
 
-function DocumentRoute({ to }: { to: string }) {
-  useEffect(() => { window.location.replace(to); }, [to]);
-  return <p className="page-intro" role="status">Loading…</p>;
+function LogoutForm({ session, reauth = false }: { session: Session; reauth?: boolean }) {
+  const logout = useMutation({
+    meta: { auth: true },
+    mutationFn: () => apiFetch('/api/logout', { method: 'POST', csrfToken: session.csrf_token }),
+  });
+  return <>
+    {logout.error && <p className="status failed" role="alert">{logout.error.message}</p>}
+    <form method="post" action="/logout" onSubmit={(event) => { event.preventDefault(); if (!logout.isPending) logout.mutate(); }}>
+      <input type="hidden" name="_csrf" value={session.csrf_token} />
+      <button type="submit" className="quiet" disabled={logout.isPending}>{reauth ? 'Log out instead' : 'Log out'}</button>
+    </form>
+  </>;
+}
+
+function Login({ session }: { session: Session }) {
+  const [username, setUsername] = useState('');
+  const password = useRef<HTMLInputElement>(null);
+  const usernameInput = useRef<HTMLInputElement>(null);
+  const login = useMutation({
+    meta: { auth: true },
+    mutationFn: () => {
+      const normalized = (usernameInput.current?.value ?? '').trim().toLowerCase();
+      const value = password.current?.value ?? '';
+      if (password.current) password.current.value = '';
+      setUsername(normalized);
+      // Password tidak menjadi variables yang disimpan MutationCache.
+      return apiFetch('/api/login', {
+        method: 'POST', csrfToken: session.csrf_token, body: { username: normalized, password: value },
+      });
+    },
+    onSettled: () => { if (password.current) password.current.value = ''; },
+    onError: () => password.current?.focus(),
+  });
+  useEffect(() => { usernameInput.current?.focus(); }, []);
+  if (session.state === 'authenticated') return <Navigate to="/databases" replace />;
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (login.isPending) return;
+    login.mutate();
+  };
+  return <Layout title="Log in">
+    <section className="stage" aria-label="About DataBrain">
+      <div className="stage-art" aria-hidden="true" />
+      <p className="stage-kicker">PostgreSQL workspace</p>
+      <p className="stage-line">Explore every table. <em>Migrate</em> with a memory.</p>
+      <ul className="stage-facts">
+        <li>One transaction per run</li><li>Durable, searchable history</li><li>Group-based access</li>
+      </ul>
+    </section>
+    <div className="auth-panel panel">
+      {session.state === 'reauth_required' && <>
+        <p className="status unknown" role="status">Your access changed. Please sign in again to continue safely.</p>
+        <LogoutForm session={session} reauth />
+      </>}
+      {login.error && <p className="status failed" role="alert">{login.error.message}</p>}
+      <form method="post" action="/login" onSubmit={submit}>
+        <input type="hidden" name="_csrf" value={session.csrf_token} />
+        <label htmlFor="username">Username</label>
+        <input ref={usernameInput} id="username" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={32} required value={username} onChange={(event) => setUsername(event.target.value)} />
+        <label htmlFor="password">Password</label>
+        <input ref={password} id="password" name="password" type="password" autoComplete="current-password" aria-describedby="password-help" required />
+        <p id="password-help" className="form-help">Passwords contain 12–128 characters and are never redisplayed.</p>
+        <button type="submit" disabled={login.isPending}>Log in</button>
+      </form>
+    </div>
+  </Layout>;
 }
 
 function Pager({ page }: { page?: Page }) {
@@ -95,17 +149,14 @@ function Pager({ page }: { page?: Page }) {
 
 function Databases({ session }: { session: Session }) {
   const { search } = useLocation();
-  const client = useQueryClient();
   const query = useQuery({
     queryKey: ['databases', session.user?.id, search],
     queryFn: ({ signal }) => apiFetch<Database[]>(`/api/databases${search}`, { signal }),
     enabled: session.state === 'authenticated',
   });
   const expired = query.error instanceof ApiError && query.error.status === 401;
-  useEffect(() => {
-    if (expired) client.clear();
-  }, [expired, client]);
-  if (session.state !== 'authenticated' || expired) return <DocumentRoute to="/login" />;
+  if (session.state !== 'authenticated') return <Navigate to="/login" replace />;
+  if (expired) return <Layout title="Log in"><p className="page-intro" role="status">Loading…</p></Layout>;
   let content: ReactNode;
   if (query.isPending) content = <p className="page-intro" role="status">Loading…</p>;
   else if (query.isError) content = <Failure error={query.error} />;
@@ -137,21 +188,20 @@ function Databases({ session }: { session: Session }) {
 
 export function App() {
   const location = useLocation();
-  const session = useQuery({ queryKey: ['session'], queryFn: ({ signal }) => apiFetch<Session>('/api/session', { signal }) });
   const client = useQueryClient();
-  const identity = session.data?.data.user?.id;
-  const priorIdentity = useRef(identity);
+  const session = useQuery(sessionQuery(client));
+  const deadline = session.data?.data.absolute_expires_at;
   useEffect(() => {
-    if (priorIdentity.current !== identity || session.data?.data.state !== 'authenticated') {
-      client.removeQueries({ queryKey: ['databases'], predicate: (query) => query.queryKey[1] !== identity || session.data?.data.state !== 'authenticated' });
-    }
-    priorIdentity.current = identity;
-  }, [identity, session.data?.data.state, client]);
+    if (!deadline) return;
+    const timer = window.setTimeout(() => { void refreshSession(client).catch(() => {}); }, Math.max(0, Date.parse(deadline) - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [deadline, client]);
   const isDatabases = location.pathname === '/' || location.pathname === '/databases';
-  if (session.isPending) return <Layout title={isDatabases ? 'Databases' : 'Error'}><p className="page-intro" role="status">Loading…</p></Layout>;
+  if (session.isPending) return <Layout title={location.pathname === '/login' ? 'Log in' : isDatabases ? 'Databases' : 'Error'}><p className="page-intro" role="status">Loading…</p></Layout>;
   if (session.isError) return <Layout title="Error"><Failure error={session.error} /></Layout>;
   return <Routes>
       <Route path="/" element={<Navigate to="/databases" replace />} />
+      <Route path="/login" element={<Login key={session.data.data.csrf_token} session={session.data.data} />} />
       <Route path="/databases" element={<Databases session={session.data.data} />} />
       <Route path="*" element={<Layout title="Error"><Failure error={new ApiError(404, 'ROUTE_NOT_FOUND', 'Page not found.', '')} /></Layout>} />
     </Routes>;

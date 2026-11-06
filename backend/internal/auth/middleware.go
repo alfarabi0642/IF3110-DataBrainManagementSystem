@@ -85,8 +85,7 @@ func rejectSession(w http.ResponseWriter, r *http.Request, code problem.Code) {
 	_ = httpx.SeeOther(w, r, "/login")
 }
 
-// RequireCSRF membaca form URL-encoded dengan batas ukuran. POST terlindungi membungkusnya dengan
-// RequireSession; login/logout dapat memakainya langsung.
+// RequireCSRF memakai family dan pemeriksaan Origin yang sama untuk JSON dan form.
 func (m *Middleware) RequireCSRF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -97,14 +96,14 @@ func (m *Middleware) RequireCSRF(next http.Handler) http.Handler {
 		if !ok {
 			token, err := m.service.cookieValue(r)
 			if err != nil {
-				httpx.WriteError(w, r, sessionFailure(problem.CSRFInvalid))
+				m.rejectCSRFFamily(w, r)
 				return
 			}
 			var replacement string
 			state, replacement, err = m.service.Validate(r.Context(), token, true)
 			if err != nil {
 				if problemIs(err, problem.SessionInvalid) {
-					httpx.WriteError(w, r, sessionFailure(problem.CSRFInvalid))
+					m.rejectCSRFFamily(w, r)
 				} else {
 					httpx.WriteError(w, r, err)
 				}
@@ -120,17 +119,34 @@ func (m *Middleware) RequireCSRF(next http.Handler) http.Handler {
 			httpx.WriteError(w, r, sessionFailure(problem.OriginRejected))
 			return
 		}
-		form, err := httpx.ParseForm(w, r, httpx.MaxFormBody)
-		if err != nil {
-			httpx.WriteError(w, r, err)
-			return
+		var submitted string
+		if httpx.IsAPI(r) {
+			if values := r.Header.Values("X-CSRF-Token"); len(values) == 1 {
+				submitted = values[0]
+			}
+		} else {
+			form, err := httpx.ParseForm(w, r, httpx.MaxFormBody)
+			if err != nil {
+				httpx.WriteError(w, r, err)
+				return
+			}
+			submitted = form.Get("_csrf")
 		}
-		if !validCSRF(state.CSRF, form.Get("_csrf")) {
+		if !validCSRF(state.CSRF, submitted) {
 			httpx.WriteError(w, r, sessionFailure(problem.CSRFInvalid))
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (m *Middleware) rejectCSRFFamily(w http.ResponseWriter, r *http.Request) {
+	if httpx.IsAPI(r) {
+		http.SetCookie(w, m.service.ClearCookie())
+		httpx.WriteJSONError(w, r, sessionFailure(problem.SessionInvalid))
+		return
+	}
+	httpx.WriteError(w, r, sessionFailure(problem.CSRFInvalid))
 }
 
 // LoginSession memakai family anonymous atau reauth yang ada, atau membuat anonymous baru untuk GET

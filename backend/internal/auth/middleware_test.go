@@ -117,6 +117,54 @@ func TestRequireSessionRedirectsMissingCookie(t *testing.T) {
 	}
 }
 
+func TestJSONCSRFGates(t *testing.T) {
+	const origin = "http://localhost:8080"
+	token := strings.Repeat("A", 43)
+	middleware := &Middleware{service: &Service{appOrigin: origin}}
+	for _, test := range []struct {
+		name    string
+		origins []string
+		tokens  []string
+		site    string
+		code    string
+	}{
+		{"valid", []string{origin}, []string{token}, "same-origin", ""},
+		{"missing origin", nil, []string{token}, "", "ORIGIN_REJECTED"},
+		{"duplicate origin", []string{origin, origin}, []string{token}, "", "ORIGIN_REJECTED"},
+		{"foreign origin", []string{"https://evil.example"}, []string{token}, "", "ORIGIN_REJECTED"},
+		{"null origin", []string{"null"}, []string{token}, "", "ORIGIN_REJECTED"},
+		{"cross site", []string{origin}, []string{token}, "cross-site", "ORIGIN_REJECTED"},
+		{"missing header", []string{origin}, nil, "", "CSRF_INVALID"},
+		{"duplicate header", []string{origin}, []string{token, token}, "", "CSRF_INVALID"},
+		{"combined header", []string{origin}, []string{token + ", " + token}, "", "CSRF_INVALID"},
+		{"wrong header", []string{origin}, []string{strings.Repeat("B", 43)}, "", "CSRF_INVALID"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			called := false
+			r := httptest.NewRequest("POST", "/api/login", strings.NewReader(`{"_csrf":"`+token+`"}`))
+			r.Header["Origin"] = test.origins
+			r.Header["X-Csrf-Token"] = test.tokens
+			r.Header.Set("Sec-Fetch-Site", test.site)
+			r = withSession(r, Session{CSRF: token}, false)
+			w := httptest.NewRecorder()
+			middleware.RequireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				if r.PostForm != nil {
+					t.Fatal("JSON body was parsed as a form")
+				}
+				w.WriteHeader(204)
+			})).ServeHTTP(w, r)
+			if test.code == "" {
+				if w.Code != 204 || !called {
+					t.Fatal("valid JSON CSRF rejected")
+				}
+			} else if called || w.Code != 403 || !strings.Contains(w.Body.String(), `"code":"`+test.code+`"`) || w.Header().Get("Location") != "" {
+				t.Fatalf("denial = %d %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestLoginSessionRejectsCrossSiteBeforeCreatingSession(t *testing.T) {
 	middleware := &Middleware{service: &Service{appOrigin: "http://localhost:8080"}}
 	r := httptest.NewRequest(http.MethodGet, "/login", nil)

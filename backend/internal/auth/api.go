@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
@@ -28,6 +30,62 @@ type sessionDTO struct {
 
 func (m *Middleware) RegisterSessionAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/session", m.sessionAPI)
+	mux.Handle("POST /api/login", httpx.LimitBody(httpx.LoginBodyLimit, m.RequireCSRF(http.HandlerFunc(m.loginAPI))))
+	mux.Handle("POST /api/logout", httpx.LimitBody(httpx.LoginBodyLimit, m.RequireCSRF(http.HandlerFunc(m.logoutAPI))))
+}
+
+func (m *Middleware) loginAPI(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := httpx.DecodeJSON(w, r, httpx.LoginBodyLimit, &input, []string{"username", "password"}, nil); err != nil {
+		httpx.WriteJSONError(w, r, err)
+		return
+	}
+	state, _ := SessionFromContext(r.Context())
+	if state.Kind == AuthenticatedSession && !state.ReauthRequired {
+		httpx.WriteJSONError(w, r, ErrAlreadyAuthenticated)
+		return
+	}
+	username := NormalizeLoginUsername(input.Username)
+	if err := m.service.checkLoginRateLimit(r.Context(), username, r.RemoteAddr, strings.Join(r.Header.Values("X-Forwarded-For"), ",")); err != nil {
+		var limited *RateLimitError
+		if errors.As(err, &limited) {
+			w.Header().Set("Retry-After", strconv.Itoa(limited.RetryAfter))
+			err = sessionFailure(problem.LoginRateLimited)
+		}
+		httpx.WriteJSONError(w, r, err)
+		return
+	}
+	newState, token, err := m.service.Login(r.Context(), state, username, input.Password)
+	if errors.Is(err, ErrInvalidCredentials) {
+		err = sessionFailure(problem.InvalidCredentials)
+	}
+	if err != nil {
+		if problemIs(err, problem.SessionInvalid) {
+			http.SetCookie(w, m.service.ClearCookie())
+		}
+		httpx.WriteJSONError(w, r, err)
+		return
+	}
+	http.SetCookie(w, m.service.Cookie(token, newState.AbsoluteExpiresAt))
+	httpx.WriteJSON(w, r, http.StatusOK, struct{}{}, nil)
+}
+
+func (m *Middleware) logoutAPI(w http.ResponseWriter, r *http.Request) {
+	var input struct{}
+	if err := httpx.DecodeJSON(w, r, httpx.LoginBodyLimit, &input, nil, nil); err != nil {
+		httpx.WriteJSONError(w, r, err)
+		return
+	}
+	state, _ := SessionFromContext(r.Context())
+	if err := m.service.Logout(r.Context(), state); err != nil {
+		httpx.WriteJSONError(w, r, err)
+		return
+	}
+	http.SetCookie(w, m.service.ClearCookie())
+	httpx.WriteJSON(w, r, http.StatusOK, struct{}{}, nil)
 }
 
 func (m *Middleware) sessionAPI(w http.ResponseWriter, r *http.Request) {

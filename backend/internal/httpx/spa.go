@@ -38,10 +38,10 @@ func SPA(mux *http.ServeMux, legacy http.Handler, dir string) (http.Handler, *os
 			return
 		}
 		_, pattern := mux.Handler(r)
-		application := r.URL.Path == "/" || r.URL.Path == "/databases" ||
+		application := r.URL.Path == "/" || r.URL.Path == "/login" || r.URL.Path == "/databases" ||
 			strings.HasPrefix(r.URL.Path, "/admin/") || strings.HasPrefix(r.URL.Path, "/databases/")
-		migrated := r.URL.Path == "/" || r.URL.Path == "/databases"
-		if r.Method == http.MethodGet && application && path.Ext(r.URL.Path) == "" &&
+		migrated := r.URL.Path == "/" || r.URL.Path == "/login" || r.URL.Path == "/databases"
+		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && application && path.Ext(r.URL.Path) == "" &&
 			path.Clean(r.URL.Path) == r.URL.Path && (migrated || pattern == "") {
 			pageHeaders(w, r)
 			http.ServeFileFS(w, r, root.FS(), "index.html")

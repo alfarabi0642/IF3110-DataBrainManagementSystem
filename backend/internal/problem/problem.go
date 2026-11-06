@@ -17,6 +17,8 @@ const (
 	RevisionConflict       Code = "REVISION_CONFLICT"
 	AuthBusy               Code = "AUTH_BUSY"
 	AlreadyAuthenticated   Code = "ALREADY_AUTHENTICATED"
+	InvalidCredentials     Code = "INVALID_CREDENTIALS"
+	LoginRateLimited       Code = "LOGIN_RATE_LIMITED"
 	UsernameTaken          Code = "USERNAME_TAKEN"
 	GroupNameTaken         Code = "GROUP_NAME_TAKEN"
 	PlatformLimitReached   Code = "PLATFORM_LIMIT_REACHED"

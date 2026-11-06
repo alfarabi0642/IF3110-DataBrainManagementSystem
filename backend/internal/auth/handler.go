@@ -1,17 +1,13 @@
 package auth
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
-	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
-	"github.com/jackc/pgx/v5"
 )
 
 type pageRenderer interface {
@@ -152,26 +148,8 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 		h.renderer.RenderError(w, r, httpx.Layout{CSRF: state.CSRF}, err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	lease, err := platformdb.Acquire(ctx, h.service.pool)
-	if err != nil {
-		h.renderer.RenderError(w, r, httpx.Layout{CSRF: state.CSRF}, sessionFailure(problem.PlatformUnavailable))
-		return
-	}
-	defer lease.Release()
-	tx, err := lease.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
-	if err != nil {
-		h.renderer.RenderError(w, r, httpx.Layout{CSRF: state.CSRF}, sessionFailure(problem.PlatformUnavailable))
-		return
-	}
-	defer rollbackAuth(tx)
-	if err := h.service.RevokeSession(ctx, tx, state.ID); err != nil {
+	if err := h.service.Logout(r.Context(), state); err != nil {
 		h.renderer.RenderError(w, r, httpx.Layout{CSRF: state.CSRF}, err)
-		return
-	}
-	if err := tx.Commit(ctx); err != nil {
-		h.renderer.RenderError(w, r, httpx.Layout{CSRF: state.CSRF}, sessionFailure(problem.PlatformUnavailable))
 		return
 	}
 	http.SetCookie(w, h.service.ClearCookie())

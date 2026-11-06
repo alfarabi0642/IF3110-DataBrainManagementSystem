@@ -112,6 +112,10 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 			return 409, p.Code, "The resource changed. Open the latest version before saving."
 		case problem.AlreadyAuthenticated:
 			return 409, p.Code, "Log out before signing in as another account."
+		case problem.InvalidCredentials:
+			return 401, p.Code, "Invalid username or password."
+		case problem.LoginRateLimited:
+			return 429, p.Code, "Too many login attempts. Try again later."
 		case problem.UsernameTaken:
 			return 409, p.Code, "That username is already in use."
 		case problem.GroupNameTaken:
