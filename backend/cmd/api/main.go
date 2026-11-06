@@ -135,7 +135,9 @@ func run(logger *slog.Logger) (err error) {
 	if !handler.Register(mux, middleware) {
 		logger.Info("admin connection routes pending admin_databases and admin_database templates")
 	}
-	explorerHandler, err := explorer.NewHandler(explorer.New(provider), db.Pool, authorizer, renderer)
+	explorerService := explorer.New(provider)
+	explorerService.RegisterAPI(apiMux, middleware, db.Pool, authorizer)
+	explorerHandler, err := explorer.NewHandler(explorerService, db.Pool, authorizer, renderer)
 	if err != nil {
 		logger.Error("explorer page templates unavailable")
 		return err

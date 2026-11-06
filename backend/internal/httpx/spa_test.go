@@ -18,6 +18,8 @@ func TestSPAFallbackBoundaries(t *testing.T) {
 	mux := NewRouter(func(context.Context) bool { return true })
 	mux.HandleFunc("GET /admin/users", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("legacy users")) })
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("legacy login")) })
+	mux.HandleFunc("GET /databases/{database_id}/explorer", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("legacy explorer")) })
+	mux.HandleFunc("GET /databases/{database_id}/drafts", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("legacy drafts")) })
 	mux.HandleFunc("POST /logout", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })
 	handler, root, err := SPA(mux, mux, dir)
 	if err != nil {
@@ -32,6 +34,8 @@ func TestSPAFallbackBoundaries(t *testing.T) {
 		{"GET", "/", 200, true}, {"GET", "/databases?limit=1", 200, true},
 		{"GET", "/login", 200, true}, {"HEAD", "/login", 200, false},
 		{"GET", "/admin/unknown", 200, true}, {"GET", "/admin/users", 200, true},
+		{"GET", "/databases/target/explorer?schema=public&table=items&offset=2", 200, true},
+		{"HEAD", "/databases/target/explorer", 200, false}, {"GET", "/databases/target/drafts", 200, false},
 		{"GET", "/static/missing.css", 404, false}, {"GET", "/assets/missing.js", 404, false},
 		{"GET", "/databases/missing.js", 404, false}, {"GET", "/missing.svg", 404, false},
 		{"GET", "/api/missing", 404, false}, {"GET", "/healthz", 200, false},

@@ -20,8 +20,8 @@ const (
 // Cell mempertahankan teks PostgreSQL, termasuk string kosong dan presisi angka. Null membedakan SQL
 // NULL dari teks "null" atau "".
 type Cell struct {
-	Null bool
-	Text string
+	Null bool   `json:"null"`
+	Text string `json:"text"`
 }
 
 type RowPage struct {
@@ -35,7 +35,7 @@ type RowPage struct {
 }
 
 // Page membaca maksimal limit baris dan satu baris tambahan untuk HasMore. Pemanggil wajib
-// mengotorisasi target dan memakai renderer HTML dengan batas ukuran.
+// mengotorisasi target dan membatasi ukuran response hasil serialisasi.
 func (e *Explorer) Page(ctx context.Context, targetID uuid.UUID, schema, table string, limit, offset int) (RowPage, error) {
 	if targetID == uuid.Nil || !validName(schema) || !validName(table) || limit < 1 || limit > 200 || offset < 0 || offset > 100000 {
 		return RowPage{}, failure(problem.InvalidRequest)

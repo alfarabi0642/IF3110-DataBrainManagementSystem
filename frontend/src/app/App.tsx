@@ -6,6 +6,7 @@ import { refreshSession, sessionQuery, type Session } from '../lib/session';
 
 import { Layout, Failure, LogoutForm, Pager } from './ui';
 import { AdminPage } from '../features/admin/AdminPage';
+import { ExplorerPage } from '../features/explorer/ExplorerPage';
 
 type Database = {
   id: string;
@@ -95,7 +96,7 @@ function Databases({ session }: { session: Session }) {
           <h2 className="db-name">{database.name}</h2>
           <p className="db-progress"><span className="k">In progress</span>{attempt ? <><a href={`${base}/migrations/${attempt.id}`}>{`Version ${attempt.version}`}</a>{' '}<span className={`badge ${attempt.state}`}>{attempt.state}</span></> : 'None'}</p>
           <div className="db-links">
-            <a href={`${base}/explorer`} aria-label={`Explorer for ${database.name}`}>Explorer</a>
+            <Link to={`${base}/explorer`} aria-label={`Explorer for ${database.name}`}>Explorer</Link>
             {database.access === 'view_edit' && <a href={`${base}/drafts`} aria-label={`Drafts for ${database.name}`}>Drafts</a>}
             <a href={`${base}/migrations`} aria-label={`History for ${database.name}`}>History</a>
           </div>
@@ -124,6 +125,7 @@ export function App() {
       <Route path="/" element={<Navigate to="/databases" replace />} />
       <Route path="/login" element={<Login key={session.data.data.csrf_token} session={session.data.data} />} />
       <Route path="/databases" element={<Databases session={session.data.data} />} />
+      <Route path="/databases/:id/explorer" element={<ExplorerPage session={session.data.data} />} />
       <Route path="/admin/:resource" element={<AdminPage key={location.pathname} session={session.data.data} />} />
       <Route path="/admin/:resource/:id" element={<AdminPage key={location.pathname} session={session.data.data} />} />
       <Route path="*" element={<Layout title="Error"><Failure error={new ApiError(404, 'ROUTE_NOT_FOUND', 'Page not found.', '')} /></Layout>} />

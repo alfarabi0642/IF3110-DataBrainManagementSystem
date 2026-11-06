@@ -41,7 +41,7 @@ func SPA(mux *http.ServeMux, legacy http.Handler, dir string) (http.Handler, *os
 		application := r.URL.Path == "/" || r.URL.Path == "/login" || r.URL.Path == "/databases" ||
 			strings.HasPrefix(r.URL.Path, "/admin/") || strings.HasPrefix(r.URL.Path, "/databases/")
 		migrated := r.URL.Path == "/" || r.URL.Path == "/login" || r.URL.Path == "/databases" ||
-			strings.HasPrefix(pattern, "GET /admin/")
+			strings.HasPrefix(pattern, "GET /admin/") || pattern == "GET /databases/{database_id}/explorer"
 		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && application && path.Ext(r.URL.Path) == "" &&
 			path.Clean(r.URL.Path) == r.URL.Path && (migrated || pattern == "") {
 			pageHeaders(w, r)

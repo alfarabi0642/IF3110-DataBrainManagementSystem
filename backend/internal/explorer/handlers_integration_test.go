@@ -2,12 +2,15 @@ package explorer
 
 import (
 	"context"
+	"encoding/json"
 	"html"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -65,6 +68,7 @@ func TestExplorerHandlersPostgres(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	handler.Register(mux, middleware)
+	f.e.RegisterAPI(mux, middleware, f.pool, guard)
 	app := httpx.Middleware(slog.New(slog.NewTextHandler(io.Discard, nil)), mux)
 	exec := func(sql string, args ...any) {
 		t.Helper()
@@ -206,18 +210,117 @@ func TestExplorerHandlersPostgres(t *testing.T) {
 		has(t, request(t, "GET", selected, viewSession, 503), "TARGET_UNAVAILABLE")
 		exec(`UPDATE databrain.database_targets SET username='databrain_target' WHERE id=$1`, f.targets[0])
 	})
+	t.Run("JSON selection access precision and response bounds", func(t *testing.T) {
+		api := "/api" + path
+		read := func(href string) (explorerDTO, *httpx.Page) {
+			t.Helper()
+			w := request(t, "GET", href, viewSession, 200)
+			if !strings.HasPrefix(w.Header().Get("Content-Type"), "application/json") {
+				t.Fatal("API returned a non-JSON response")
+			}
+			var body struct {
+				Data explorerDTO `json:"data"`
+				Page *httpx.Page `json:"page"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			return body.Data, body.Page
+		}
+		for _, session := range []explorerSession{{}, {token: "invalid"}, anonSession} {
+			w := request(t, "GET", api, session, 401)
+			if w.Header().Get("Location") != "" || !strings.Contains(w.Body.String(), `"error"`) {
+				t.Fatal("API redirected or omitted error envelope")
+			}
+		}
+		for _, session := range []explorerSession{noneSession, adminSession} {
+			request(t, "GET", api+"?unknown=1", session, 404)
+		}
+		request(t, "GET", "/api/databases/"+uuid.NewString()+"/explorer", viewSession, 404)
+		request(t, "GET", "/api/databases/invalid/explorer", viewSession, 400)
+		request(t, "POST", api, editSession, 405)
+		root, _ := read(api)
+		if len(root.Schemas) == 0 || root.Database.Access != access.ViewOnly || root.Database.Name != "Database <b>fixture</b>" {
+			t.Fatal("schema list or safe workspace projection incorrect")
+		}
+		list, _ := read(explorerHref(api, schema, "", "data", 2, 0))
+		if len(list.Tables) != 5 {
+			t.Fatal("table list incorrect")
+		}
+		first, page := read(explorerHref(api, schema, table, "data", 2, 0))
+		if first.Schema != schema || first.Table != table || first.Tab != "data" || first.Data == nil ||
+			len(first.Data.Rows) != 2 || first.Data.Rows[0][1] != (Cell{Null: true}) || first.Data.Rows[1][1] != (Cell{Text: "null"}) ||
+			first.Data.Rows[0][2].Text != "12345678901234567890.1234" || page == nil || page.NextOffset == nil || *page.NextOffset != 2 || page.PrevOffset != nil {
+			t.Fatal("JSON selection, NULL, precision or first page changed")
+		}
+		last, page := read(explorerHref(api, schema, table, "data", 2, 2))
+		if last.Data.Rows[0][1] != (Cell{Text: ""}) || page.NextOffset != nil || page.PrevOffset == nil || *page.PrevOffset != 0 {
+			t.Fatal("empty text or last page changed")
+		}
+		for _, tab := range []string{"columns", "constraints", "indexes"} {
+			metadata, page := read(explorerHref(api, schema, table, tab, 2, 0))
+			if metadata.Tab != tab || metadata.Data != nil || page != nil || len(metadata.Columns) != 4 || len(metadata.Constraints) != 2 || len(metadata.Indexes) != 2 || metadata.Columns[0].Default != nil || metadata.Columns[0].Identity != "a" {
+				t.Fatal("metadata types or absent default changed")
+			}
+		}
+		second, _ := read(explorerHref("/api"+secondPath, schema, table, "data", 2, 0))
+		if !reflect.DeepEqual(second.Data.Columns, []string{"other"}) || second.Data.Rows[0][0].Text != "SECOND_TARGET_ONLY" {
+			t.Fatal("JSON data crossed targets")
+		}
+		for _, query := range []string{"schema=", "schema=x&schema=y", "unknown=x", "schema=%ff", "schema=%zz", "table=t", "limit=0", "limit=201", "offset=-1", "offset=100001", "limit=1.5", "tab=other", "schema=s&table=t&tab=columns&offset=0"} {
+			request(t, "GET", api+"?"+query, viewSession, 400)
+		}
+		for _, missing := range [][2]string{{"missing", table}, {schema, "missing"}, {"pg_catalog", "pg_class"}, {schema, `'; DROP TABLE x;--`}} {
+			request(t, "GET", explorerHref(api, missing[0], missing[1], "data", 2, 0), viewSession, 404)
+		}
+		for _, item := range []struct {
+			table         string
+			limit, status int
+			code          string
+		}{
+			{"oversized", 2, 422, "CELL_TOO_LARGE"}, {"big_page", 9, 413, "RESULT_TOO_LARGE"},
+		} {
+			has(t, request(t, "GET", explorerHref(api, schema, item.table, "data", item.limit, 0), viewSession, item.status), item.code)
+		}
+		fixtureSQL(t, f.writers[0], "CREATE TABLE "+qs+`.changing(id bigint); INSERT INTO `+qs+`.changing VALUES (9223372036854775807)`)
+		changed, _ := read(explorerHref(api, schema, "changing", "data", 1, 0))
+		if changed.Data.Rows[0][0].Text != "9223372036854775807" {
+			t.Fatal("bigint precision changed")
+		}
+		fixtureSQL(t, f.writers[0], "ALTER TABLE "+qs+`.changing RENAME COLUMN id TO renamed`)
+		changed, _ = read(explorerHref(api, schema, "changing", "data", 1, 0))
+		if changed.Data.Columns[0] != "renamed" {
+			t.Fatal("stale column metadata reused")
+		}
+		fixtureSQL(t, f.writers[0], "DROP TABLE "+qs+`.changing`)
+		request(t, "GET", explorerHref(api, schema, "changing", "data", 1, 0), viewSession, 404)
+		definitions := make([]string, 900)
+		for i := range definitions {
+			definitions[i] = "c" + strconv.Itoa(i) + " int"
+		}
+		fixtureSQL(t, f.writers[0], "CREATE TABLE "+qs+".json_budget ("+strings.Join(definitions, ",")+"); INSERT INTO "+qs+".json_budget SELECT FROM generate_series(1,200)")
+		w := request(t, "GET", explorerHref(api, schema, "json_budget", "data", 200, 0), viewSession, 413)
+		if strings.Contains(w.Body.String(), `"data"`) || !strings.Contains(w.Body.String(), "RESULT_TOO_LARGE") {
+			t.Fatal("oversized JSON returned a partial success")
+		}
+		read(explorerHref(api, schema, "json_budget", "data", 1, 0))
+	})
 	t.Run("current grants target state and revoked sessions", func(t *testing.T) {
 		exec(`UPDATE databrain.database_targets SET is_active=false WHERE id=$1`, f.targets[0])
 		request(t, "GET", selected, viewSession, 404)
+		request(t, "GET", "/api"+selected, viewSession, 404)
 		exec(`UPDATE databrain.database_targets SET is_active=true WHERE id=$1`, f.targets[0])
 		exec(`UPDATE databrain.groups SET is_active=false WHERE id=$1`, viewGroup)
 		request(t, "GET", selected, viewSession, 404)
+		request(t, "GET", "/api"+selected, viewSession, 404)
 		exec(`UPDATE databrain.groups SET is_active=true WHERE id=$1`, viewGroup)
 		exec(`DELETE FROM databrain.database_grants WHERE group_id=$1 AND target_id=$2`, viewGroup, f.targets[0])
 		request(t, "GET", selected, viewSession, 404)
+		request(t, "GET", "/api"+selected, viewSession, 404)
 		request(t, "GET", explorerHref(secondPath, schema, table, "data", 2, 0), viewSession, 200)
 		exec(`UPDATE databrain.sessions SET revoked_at=clock_timestamp() WHERE id=$1`, viewSession.id)
 		request(t, "GET", secondPath, viewSession, 303)
+		request(t, "GET", "/api"+secondPath, viewSession, 401)
 	})
 	// Handler tidak menulis ke target; perubahan hanya berasal dari SQL fixture yang eksplisit.
 	var count int

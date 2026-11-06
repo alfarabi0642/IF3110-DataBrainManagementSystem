@@ -4,7 +4,9 @@ import { Link, useLocation } from 'react-router';
 import { apiFetch, ApiError, type Page } from '../lib/api';
 import type { Session } from '../lib/session';
 
-export function Layout({ session, title, children }: { session?: Session; title: string; children: ReactNode }) {
+export type WorkspaceDatabase = { id: string; name: string; access: 'view_only' | 'view_edit' };
+
+export function Layout({ session, title, database, children }: { session?: Session; title: string; database?: WorkspaceDatabase; children: ReactNode }) {
   const location = useLocation();
   const main = useRef<HTMLElement>(null);
   const previous = useRef(location.key);
@@ -35,6 +37,13 @@ export function Layout({ session, title, children }: { session?: Session; title:
             <Link to="/admin/databases" aria-current={location.pathname.startsWith('/admin/databases') ? 'page' : undefined}>Connections</Link>
           </>}
         </nav>}
+        {user && database && <nav className="dbnav" aria-label="Database">
+          <span className="nav-label">Database</span>
+          <strong>{database.name}</strong>
+          <Link to={`/databases/${database.id}/explorer`} aria-current={location.pathname.endsWith('/explorer') ? 'page' : undefined}>Explorer</Link>
+          {database.access === 'view_edit' && <a href={`/databases/${database.id}/drafts`}>Drafts</a>}
+          <a href={`/databases/${database.id}/migrations`}>History</a>
+        </nav>}
         {user && <div className="account">
           <span className="avatar" aria-hidden="true">{user.display_name || user.username}</span>
           <span className="who">{user.display_name} <span className="muted">{user.username}</span></span>
@@ -43,7 +52,7 @@ export function Layout({ session, title, children }: { session?: Session; title:
       </header>
       <main id="main" ref={main} tabIndex={-1}>
         <header className="masthead">
-          <p className="eyebrow"><span>{location.pathname.startsWith('/admin/') ? 'Administration' : user ? 'Workspace' : 'DataBrain'}</span></p>
+          <p className="eyebrow">{database ? <><span>Database</span><span>{database.name}</span></> : <span>{location.pathname.startsWith('/admin/') ? 'Administration' : user ? 'Workspace' : 'DataBrain'}</span>}</p>
           <h1>{title}</h1>
         </header>
         {children}
@@ -78,9 +87,14 @@ export function LogoutForm({ session, reauth = false }: { session: Session; reau
 }
 
 export function Pager({ page }: { page?: Page }) {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   if (!page || (page.prev_offset === null && page.next_offset === null)) return null;
-  const link = (offset: number) => `${pathname}?limit=${page.limit}&offset=${offset}`;
+  const link = (offset: number) => {
+    const params = new URLSearchParams(search);
+    params.set('limit', String(page.limit));
+    params.set('offset', String(offset));
+    return `${pathname}?${params}`;
+  };
   return <nav className="pager" aria-label="Pages">
     {page.prev_offset !== null && <Link to={link(page.prev_offset)} rel="prev">Previous</Link>}
     {page.next_offset !== null && <Link to={link(page.next_offset)} rel="next">Next</Link>}
