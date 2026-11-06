@@ -26,6 +26,19 @@ type Page struct {
 	PrevOffset *int `json:"prev_offset"`
 }
 
+func NewPage(limit, offset int, more bool) *Page {
+	page := &Page{Limit: limit, Offset: offset, HasMore: more}
+	if offset > 0 {
+		previous := max(0, offset-limit)
+		page.PrevOffset = &previous
+	}
+	if more && offset+limit <= 100000 {
+		next := offset + limit
+		page.NextOffset = &next
+	}
+	return page
+}
+
 type successEnvelope struct {
 	Data      any    `json:"data"`
 	Page      *Page  `json:"page,omitempty"`

@@ -11,12 +11,12 @@ type Pager struct {
 }
 
 type UserItem struct {
-	ID          string
-	Username    string
-	DisplayName string
-	IsActive    bool
-	IsAdmin     bool
-	Revision    int64
+	ID          string `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	IsActive    bool   `json:"is_active"`
+	IsAdmin     bool   `json:"is_platform_admin"`
+	Revision    int64  `json:"revision,string"`
 }
 
 // UserForm hanya berisi nilai yang aman ditampilkan ulang. Password tidak disalin ke data halaman.
@@ -29,10 +29,10 @@ type UserForm struct {
 }
 
 type GroupItem struct {
-	ID       string
-	Name     string
-	IsActive bool
-	Revision int64
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	IsActive bool   `json:"is_active"`
+	Revision int64  `json:"revision,string"`
 }
 
 type UsersPage struct {
@@ -59,21 +59,21 @@ type GroupForm struct {
 }
 
 type MemberItem struct {
-	ID          string
-	Username    string
-	DisplayName string
-	IsActive    bool
+	ID          string `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	IsActive    bool   `json:"is_active"`
 }
 
 type GrantItem struct {
-	DatabaseID   string
-	DatabaseName string
-	Access       access.Level
+	DatabaseID   string       `json:"database_id"`
+	DatabaseName string       `json:"database_name"`
+	Access       access.Level `json:"access"`
 }
 
 type DatabaseChoice struct {
-	ID   string
-	Name string
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type GroupsPage struct {

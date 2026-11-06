@@ -119,6 +119,8 @@ func run(logger *slog.Logger) (err error) {
 	if err != nil {
 		return err
 	}
+	adminService.RegisterAPI(apiMux, middleware)
+	provider.RegisterAdminAPI(apiMux, middleware, authorizer)
 	adminHandler, err := admin.NewHandler(adminService, sessions, renderer)
 	if err != nil {
 		logger.Error("administration page templates unavailable")

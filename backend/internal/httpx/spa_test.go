@@ -31,7 +31,7 @@ func TestSPAFallbackBoundaries(t *testing.T) {
 	}{
 		{"GET", "/", 200, true}, {"GET", "/databases?limit=1", 200, true},
 		{"GET", "/login", 200, true}, {"HEAD", "/login", 200, false},
-		{"GET", "/admin/unknown", 200, true}, {"GET", "/admin/users", 200, false},
+		{"GET", "/admin/unknown", 200, true}, {"GET", "/admin/users", 200, true},
 		{"GET", "/static/missing.css", 404, false}, {"GET", "/assets/missing.js", 404, false},
 		{"GET", "/databases/missing.js", 404, false}, {"GET", "/missing.svg", 404, false},
 		{"GET", "/api/missing", 404, false}, {"GET", "/healthz", 200, false},

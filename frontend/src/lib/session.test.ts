@@ -20,6 +20,31 @@ function response(data: unknown, status = 200) {
 }
 
 describe('session and protected cache', () => {
+  it('checks access changes after a lost admin response without replaying the mutation', async () => {
+    const queryClient = client();
+    queryClient.setQueryData(['session'], { data: session(), request_id: 'r' });
+    queryClient.setQueryData(['admin', 'users'], ['private']);
+    const fetch = vi.fn().mockRejectedValueOnce(new TypeError('connection lost')).mockResolvedValueOnce(response(session('anonymous', 'b')));
+    vi.stubGlobal('fetch', fetch);
+    const mutation = queryClient.getMutationCache().build(queryClient, {
+      meta: { access: true }, mutationFn: () => apiFetch('/api/admin/users/alice/password', { method: 'POST', csrfToken: 'a'.repeat(43) }),
+    });
+    await expect(mutation.execute(undefined)).rejects.toMatchObject({ name: 'NetworkError' });
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual(['/api/admin/users/alice/password', '/api/session']);
+    expect(queryClient.getQueryData(['admin', 'users'])).toBeUndefined();
+  });
+
+  it('removes protected data if bootstrap fails after an admin mutation succeeds', async () => {
+    const queryClient = client();
+    queryClient.setQueryData(['admin', 'users'], ['private']);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response({})).mockRejectedValueOnce(new TypeError('offline')));
+    const mutation = queryClient.getMutationCache().build(queryClient, {
+      meta: { access: true }, mutationFn: () => apiFetch('/api/admin/users/alice', { method: 'POST', csrfToken: 'a'.repeat(43) }),
+    });
+    await mutation.execute(undefined);
+    expect(queryClient.getQueryData(['admin', 'users'])).toBeUndefined();
+  });
+
   it.each([
     session('authenticated', 'b'), session('authenticated', 'a', 'bob'),
     session('reauth_required'), session('anonymous'),

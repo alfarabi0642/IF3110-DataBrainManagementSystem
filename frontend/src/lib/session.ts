@@ -59,13 +59,16 @@ export function createQueryClient() {
           // Respons auth yang putus dapat terjadi setelah cookie atau revoke berubah.
           await clearProtectedCache(client);
           await refreshSession(client).catch(() => {});
+        } else if (mutation.meta?.access && !(error instanceof ApiError)) {
+          // Respons administrasi dapat putus setelah privilege atau password berubah.
+          await refreshSession(client).catch(() => clearProtectedCache(client));
         } else {
           await recover(error);
         }
       },
       onSuccess: async (_data, _variables, _context, mutation) => {
         if (mutation.meta?.auth) await clearProtectedCache(client);
-        await refreshSession(client).catch(() => {});
+        await refreshSession(client).catch(() => mutation.meta?.access ? clearProtectedCache(client) : undefined);
       },
     }),
   });

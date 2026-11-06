@@ -52,14 +52,5 @@ func (p *Provider) databasesAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		data = append(data, database)
 	}
-	page := httpx.Page{Limit: limit, Offset: offset, HasMore: more}
-	if offset > 0 {
-		previous := max(0, offset-limit)
-		page.PrevOffset = &previous
-	}
-	if more && offset+limit <= 100000 {
-		next := offset + limit
-		page.NextOffset = &next
-	}
-	httpx.WriteJSON(w, r, http.StatusOK, data, &page)
+	httpx.WriteJSON(w, r, http.StatusOK, data, httpx.NewPage(limit, offset, more))
 }
