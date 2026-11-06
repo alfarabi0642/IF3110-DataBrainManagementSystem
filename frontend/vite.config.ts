@@ -7,7 +7,7 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: Object.fromEntries([
-      '/api', '/static', '/healthz', '/logout', '^/databases/[^/]+/(?!explorer(?:[?]|$)).+',
+      '/api', '/static', '/healthz', '/logout',
     ].map((prefix) => [prefix, { target }])),
   },
 });

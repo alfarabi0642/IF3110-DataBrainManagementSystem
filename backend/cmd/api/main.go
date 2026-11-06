@@ -153,6 +153,7 @@ func run(logger *slog.Logger) (err error) {
 		return err
 	}
 	draftHandler.Register(mux, middleware)
+	draftHandler.RegisterAPI(apiMux, middleware)
 	assets, err := httpx.MountStatic(mux, "web/static")
 	if err != nil {
 		logger.Error("unable to open static directory")
