@@ -20,7 +20,7 @@ const MaxSQLBytes = 128 << 10
 // DraftSummary tidak memuat SQL pada hasil daftar.
 type DraftSummary struct {
 	ID, TargetID, CreatedBy, UpdatedBy uuid.UUID
-	Title                              string
+	Title, UpdatedByUsername           string
 	Revision                           int64
 	CreatedAt, UpdatedAt               time.Time
 }

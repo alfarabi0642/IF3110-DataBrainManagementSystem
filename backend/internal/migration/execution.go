@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/access"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
 	"github.com/jackc/pgx/v5"
@@ -145,8 +146,7 @@ func (s *AttemptStore) persistOutcome(ctx context.Context, r AttemptReceipt, out
 	return r, nil
 }
 
-// Context baru memberi waktu terbatas untuk menyimpan hasil setelah request dibatalkan. Seluruh
-// cleanup tetap masuk batas total runner 65 detik.
+// Cleanup tetap terbatas pada rollback, penutupan koneksi, dan persistence setelah caller batal.
 func cleanupExecutionContext(end time.Time, maximum time.Duration) (context.Context, context.CancelFunc) {
 	deadline := time.Now().Add(maximum)
 	if end.Before(deadline) {
@@ -188,4 +188,61 @@ func executionCanceled(ctx context.Context) *ExecutionFailure {
 		return &ExecutionFailure{Code: "CANCELED", Message: "Execution was canceled."}
 	}
 	return &ExecutionFailure{Code: "SQL_TIMEOUT", Message: "Execution exceeded its time limit."}
+}
+
+func (runner *Runner) runTarget(ctx context.Context, p access.Principal, r AttemptReceipt, end time.Time) attemptOutcome {
+	snapshot, err := runner.store.executionSnapshot(ctx, r)
+	if err != nil {
+		return notStartedExecutionError(ctx, "OUTCOME_PERSISTENCE_FAILED", "The execution snapshot could not be read.")
+	}
+	statements, err := ValidateSQL(snapshot.sql)
+	if err != nil {
+		return notStarted("OUTCOME_PERSISTENCE_FAILED", "The execution snapshot could not be validated.")
+	}
+	conn, err := runner.provider.OpenMigration(ctx, r.TargetID, snapshot.configRevision, r.ID)
+	if err != nil {
+		return notStartedExecutionError(ctx, "CONNECTION_FAILED", "The target connection could not be opened.")
+	}
+	defer func() {
+		cleanup, cancel := cleanupExecutionContext(end, 3*time.Second)
+		defer cancel()
+		_ = conn.Close(cleanup)
+	}()
+	// Periksa otorisasi tepat sebelum BEGIN setelah menunggu koneksi. Pencabutan yang sudah commit sebelum
+	// pemeriksaan ini mencegah SQL berjalan.
+	if _, err := runner.authorizer.RequireDatabase(ctx, p, r.TargetID, access.MigrationExecute); err != nil {
+		var denied *problem.Error
+		if errors.As(err, &denied) && denied.Code == problem.PlatformUnavailable {
+			return notStartedExecutionError(ctx, "OUTCOME_PERSISTENCE_FAILED", "Access could not be checked before execution.")
+		}
+		return notStarted("ACCESS_REVOKED", "Access was revoked before execution.")
+	}
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return notStartedExecutionError(ctx, "CONNECTION_FAILED", "The target transaction could not be started.")
+	}
+	// Statement kontrol backend tetap dipisahkan dari SQL pengguna.
+	_, err = tx.Exec(ctx, `SET LOCAL statement_timeout='30s'; SET LOCAL lock_timeout='3s'; SET LOCAL search_path=public`, pgx.QueryExecModeSimpleProtocol)
+	if err != nil {
+		return rollbackExecution(tx, statementFailure(ctx, err, 0), end)
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(ctx, statement.SQL, pgx.QueryExecModeExec); err != nil {
+			return rollbackExecution(tx, statementFailure(ctx, err, statement.Index), end)
+		}
+	}
+	deadline, _ := ctx.Deadline()
+	if ctx.Err() != nil || time.Until(deadline) < 2*time.Second {
+		return rollbackExecution(tx, executionCanceled(ctx), end)
+	}
+	if err := runner.store.markCommit(ctx, r); err != nil {
+		return rollbackExecution(tx, &ExecutionFailure{Code: "OUTCOME_PERSISTENCE_FAILED", Message: "The commit phase could not be recorded."}, end)
+	}
+	if ctx.Err() != nil || time.Until(deadline) < time.Second {
+		return rollbackExecution(tx, executionCanceled(ctx), end)
+	}
+	// Jangan mengulang COMMIT meski acknowledgement hilang. pgx.Tx yang tertutup tidak membuktikan
+	// rollback; recovery memerlukan bukti operator.
+	err = tx.Commit(ctx)
+	return commitOutcome(conn, err)
 }

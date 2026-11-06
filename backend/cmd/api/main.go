@@ -113,7 +113,11 @@ func run(logger *slog.Logger) (err error) {
 	if err != nil {
 		return err
 	}
-	draftHandler, err := migration.NewAPIHandler(migration.NewDraftStore(db.Pool), runner, authorizer)
+	migrationService, err := migration.NewService(migration.NewDraftStore(db.Pool), runner, authorizer)
+	if err != nil {
+		return err
+	}
+	draftHandler, err := migration.NewAPIHandler(migrationService)
 	if err != nil {
 		return err
 	}

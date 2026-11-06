@@ -44,17 +44,19 @@ type DraftPage struct {
 }
 
 type Handler struct {
-	store      *DraftStore
-	runner     *Runner
-	authorizer access.Authorizer
-	renderer   *httpx.Renderer
+	service  *Service
+	renderer *httpx.Renderer
 }
 
 func NewHandler(store *DraftStore, runner *Runner, authorizer access.Authorizer, renderer *httpx.Renderer) (*Handler, error) {
-	if store == nil || store.pool == nil || runner == nil || runner.store == nil || runner.store.pool != store.pool || authorizer == nil || !renderer.HasTemplate("drafts") || !renderer.HasTemplate("draft") || !renderer.HasTemplate("review") || !renderer.HasTemplate("history") || !renderer.HasTemplate("attempt") || !renderer.HasTemplate("error") {
+	service, err := NewService(store, runner, authorizer)
+	if err != nil {
+		return nil, err
+	}
+	if !renderer.HasTemplate("drafts") || !renderer.HasTemplate("draft") || !renderer.HasTemplate("review") || !renderer.HasTemplate("history") || !renderer.HasTemplate("attempt") || !renderer.HasTemplate("error") {
 		return nil, draftFailure(problem.InternalError)
 	}
-	return &Handler{store, runner, authorizer, renderer}, nil
+	return &Handler{service: service, renderer: renderer}, nil
 }
 
 func (h *Handler) Register(mux *http.ServeMux, middleware *auth.Middleware) {
@@ -95,10 +97,6 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request, layout httpx.La
 	}
 }
 
-func draftPathID(r *http.Request, name string) (uuid.UUID, error) {
-	return httpx.UUIDValue(url.Values{name: {r.PathValue(name)}}, name)
-}
-
 // prepare mengotorisasi sebelum membaca draft atau data tampilan. Identitas hanya berasal dari session
 // tervalidasi dan diperiksa ulang oleh Authorizer.
 func (h *Handler) prepare(r *http.Request) (httpx.Layout, access.Principal, uuid.UUID, error) {
@@ -117,44 +115,28 @@ func (h *Handler) prepareAction(r *http.Request, action access.Action) (httpx.La
 	if err != nil {
 		return layout, principal, id, err
 	}
-	level, err := h.authorizer.RequireDatabase(r.Context(), principal, id, action)
+	database, err := h.service.Database(r.Context(), principal, id, action)
 	if err != nil {
 		return layout, principal, id, err
 	}
-	lease, err := platformdb.Acquire(r.Context(), h.store.pool)
+	lease, err := platformdb.Acquire(r.Context(), h.service.store.pool)
 	if err != nil {
 		return layout, principal, id, draftFailure(problem.PlatformUnavailable)
 	}
 	defer lease.Release()
 	user := &httpx.LayoutUser{}
-	database := &httpx.LayoutDatabase{ID: id.String(), CanEdit: level == access.ViewEdit}
-	err = lease.QueryRow(r.Context(), `SELECT u.display_name,u.username,u.is_platform_admin,t.name
-	    FROM databrain.users u CROSS JOIN databrain.database_targets t
-	    WHERE u.id=$1 AND u.is_active AND u.security_version=$2 AND t.id=$3 AND t.is_active`, principal.UserID, principal.SecurityVersion, id).
-		Scan(&user.DisplayName, &user.Username, &user.IsAdmin, &database.Name)
+	layout.Database = &httpx.LayoutDatabase{ID: id.String(), Name: database.Name, CanEdit: database.Access == access.ViewEdit}
+	err = lease.QueryRow(r.Context(), `SELECT display_name,username,is_platform_admin FROM databrain.users
+	    WHERE id=$1 AND is_active AND security_version=$2`, principal.UserID, principal.SecurityVersion).
+		Scan(&user.DisplayName, &user.Username, &user.IsAdmin)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return layout, principal, id, draftFailure(problem.DatabaseNotFound)
 	}
 	if err != nil {
 		return layout, principal, id, draftFailure(problem.PlatformUnavailable)
 	}
-	layout.User, layout.Database = user, database
+	layout.User = user
 	return layout, principal, id, nil
-}
-
-func draftPagination(r *http.Request) (int, int, error) {
-	values, err := httpx.ParseQuery(r, "limit", "offset")
-	if err != nil {
-		return 0, 0, err
-	}
-	limit, offset := int64(50), int64(0)
-	if values.Has("limit") {
-		limit, err = httpx.Int64Value(values, "limit", 1, 200)
-	}
-	if err == nil && values.Has("offset") {
-		offset, err = httpx.Int64Value(values, "offset", 0, 100000)
-	}
-	return int(limit), int(offset), err
 }
 
 func draftPager(path string, limit, offset int, more bool) DraftPager {
@@ -171,54 +153,21 @@ func draftPager(path string, limit, offset int, more bool) DraftPager {
 	return p
 }
 
-func (h *Handler) display(ctx context.Context, drafts []DraftSummary) ([]DraftItem, error) {
+func displayDrafts(drafts []DraftSummary) []DraftItem {
 	items := make([]DraftItem, 0, len(drafts))
-	if len(drafts) == 0 {
-		return items, nil
-	}
-	actors := make([]uuid.UUID, 0, len(drafts))
 	for _, d := range drafts {
-		actors = append(actors, d.UpdatedBy)
+		items = append(items, DraftItem{ID: d.ID.String(), Title: d.Title, Revision: strconv.FormatInt(d.Revision, 10), UpdatedBy: d.UpdatedByUsername, UpdatedAt: d.UpdatedAt.UTC().Format("2006-01-02 15:04:05")})
 	}
-	lease, err := platformdb.Acquire(ctx, h.store.pool)
-	if err != nil {
-		return nil, draftFailure(problem.PlatformUnavailable)
-	}
-	defer lease.Release()
-	rows, err := lease.Query(ctx, `SELECT id,username FROM databrain.users WHERE id=ANY($1)`, actors)
-	if err != nil {
-		return nil, draftFailure(problem.PlatformUnavailable)
-	}
-	defer rows.Close()
-	names := make(map[uuid.UUID]string)
-	for rows.Next() {
-		var id uuid.UUID
-		var name string
-		if err := rows.Scan(&id, &name); err != nil {
-			return nil, draftFailure(problem.PlatformUnavailable)
-		}
-		names[id] = name
-	}
-	if rows.Err() != nil {
-		return nil, draftFailure(problem.PlatformUnavailable)
-	}
-	for _, d := range drafts {
-		items = append(items, DraftItem{ID: d.ID.String(), Title: d.Title, Revision: strconv.FormatInt(d.Revision, 10), UpdatedBy: names[d.UpdatedBy], UpdatedAt: d.UpdatedAt.UTC().Format("2006-01-02 15:04:05")})
-	}
-	return items, nil
+	return items
 }
 
 func (h *Handler) renderList(w http.ResponseWriter, r *http.Request, layout httpx.Layout, id uuid.UUID, limit, offset, status int, form DraftInput, message string) {
-	drafts, more, err := h.store.List(r.Context(), id, limit, offset)
+	drafts, more, err := h.service.ListDrafts(r.Context(), requestPrincipal(r), id, limit, offset)
 	if err != nil {
 		h.fail(w, r, layout, err)
 		return
 	}
-	items, err := h.display(r.Context(), drafts)
-	if err != nil {
-		h.fail(w, r, layout, err)
-		return
-	}
+	items := displayDrafts(drafts)
 	h.render(w, r, layout, status, "drafts", DraftsPage{Layout: layout, Drafts: items, Pager: draftPager("/databases/"+id.String()+"/drafts", limit, offset, more), Form: form, Error: message})
 }
 
@@ -237,11 +186,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) renderDraft(w http.ResponseWriter, r *http.Request, layout httpx.Layout, d Draft, status int, input *SaveDraftInput, message string, conflict bool) {
-	items, err := h.display(r.Context(), []DraftSummary{d.DraftSummary})
-	if err != nil {
-		h.fail(w, r, layout, err)
-		return
-	}
+	items := displayDrafts([]DraftSummary{d.DraftSummary})
 	item := items[0]
 	item.SQL = d.SQL
 	if input != nil {
@@ -262,7 +207,7 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 	}
 	var d Draft
 	if err == nil {
-		d, err = h.store.Get(r.Context(), id, draftID)
+		d, err = h.service.GetDraft(r.Context(), requestPrincipal(r), id, draftID)
 	}
 	if err != nil {
 		h.fail(w, r, layout, err)
@@ -316,7 +261,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		h.renderList(w, r, layout, id, 50, 0, 422, in.DraftInput, message)
 		return
 	}
-	d, err := h.store.Create(r.Context(), id, principal.UserID, in.DraftInput)
+	d, err := h.service.CreateDraft(r.Context(), principal, id, in.DraftInput)
 	if err != nil {
 		h.fail(w, r, layout, err)
 		return
@@ -336,7 +281,7 @@ func (h *Handler) save(w http.ResponseWriter, r *http.Request) {
 	}
 	var d Draft
 	if err == nil {
-		d, err = h.store.Get(r.Context(), id, draftID)
+		d, err = h.service.GetDraft(r.Context(), requestPrincipal(r), id, draftID)
 	}
 	if err != nil {
 		h.fail(w, r, layout, err)
@@ -346,7 +291,7 @@ func (h *Handler) save(w http.ResponseWriter, r *http.Request) {
 		h.renderDraft(w, r, layout, d, 422, &in, message, false)
 		return
 	}
-	_, err = h.store.Save(r.Context(), id, draftID, principal.UserID, in)
+	_, err = h.service.SaveDraft(r.Context(), principal, id, draftID, in)
 	if err != nil {
 		status, code, message := httpx.ErrorInfo(err)
 		if code == problem.RevisionConflict {
@@ -357,4 +302,9 @@ func (h *Handler) save(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = httpx.SeeOther(w, r, "/databases/"+id.String()+"/drafts/"+draftID.String())
+}
+
+func requestPrincipal(r *http.Request) access.Principal {
+	p, _ := access.FromContext(r.Context())
+	return p
 }

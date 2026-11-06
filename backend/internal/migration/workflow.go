@@ -1,7 +1,6 @@
 package migration
 
 import (
-	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -55,15 +54,6 @@ func attemptPath(target, attempt uuid.UUID) string {
 	return "/databases/" + target.String() + "/migrations/" + attempt.String()
 }
 
-func reviewInput(values url.Values) (ReserveInput, error) {
-	revision, err := httpx.Int64Value(values, "expected_revision", 1, math.MaxInt64)
-	if err != nil {
-		return ReserveInput{}, err
-	}
-	key, err := httpx.UUIDValue(values, "request_key")
-	return ReserveInput{revision, key}, err
-}
-
 // Saat error, pengguna memeriksa key yang sama lewat GET sebelum tindakan lain. Draft tidak perlu
 // dibaca meski platform berhenti merespons setelah claim.
 func (h *Handler) reviewError(w http.ResponseWriter, r *http.Request, layout httpx.Layout, target, draft uuid.UUID, input ReserveInput, err error) {
@@ -97,41 +87,37 @@ func (h *Handler) review(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, layout, err)
 		return
 	}
-	if len(values) == 0 {
-		d, err := h.store.Get(r.Context(), target, draftID)
-		if err != nil {
-			h.fail(w, r, layout, err)
+	var input *ReserveInput
+	if len(values) != 0 {
+		parsed, parseErr := reviewInput(values)
+		if parseErr != nil {
+			h.fail(w, r, layout, parseErr)
 			return
 		}
-		_ = httpx.SeeOther(w, r, reviewPath(target, draftID, ReserveInput{d.Revision, uuid.New()}))
-		return
+		input = &parsed
 	}
-	input, err := reviewInput(values)
+	review, err := h.service.Review(r.Context(), principal, target, draftID, input)
 	if err != nil {
-		h.fail(w, r, layout, err)
+		if input == nil {
+			h.fail(w, r, layout, err)
+		} else {
+			h.reviewError(w, r, layout, target, draftID, *input, err)
+		}
 		return
 	}
-	// Cocokkan receipt sebelum memeriksa revision draft terkini dan target sibuk.
-	receipt, err := h.runner.replay(r.Context(), target, draftID, principal.UserID, input)
-	if err == nil && receipt != nil {
-		_ = httpx.SeeOther(w, r, attemptPath(target, receipt.ID))
+	if input == nil {
+		_ = httpx.SeeOther(w, r, reviewPath(target, draftID, review.Input))
 		return
 	}
-	var d Draft
-	if err == nil {
-		d, err = h.store.Get(r.Context(), target, draftID)
-	}
-	if err == nil && d.Revision != input.ExpectedRevision {
-		err = attemptFailure(problem.RevisionConflict)
-	}
-	if err != nil {
-		h.reviewError(w, r, layout, target, draftID, input, err)
+	if review.Receipt != nil {
+		_ = httpx.SeeOther(w, r, attemptPath(target, review.Receipt.ID))
 		return
 	}
+	d := review.Draft
 	layout.Title = "Review migration"
 	h.render(w, r, layout, 200, "review", ReviewPage{
 		Layout: layout, Draft: DraftItem{ID: d.ID.String(), Title: d.Title, SQL: d.SQL, Revision: strconv.FormatInt(d.Revision, 10)},
-		RequestKey: input.RequestKey.String(),
+		RequestKey: review.Input.RequestKey.String(),
 	})
 }
 
@@ -152,21 +138,12 @@ func (h *Handler) execute(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, layout, err)
 		return
 	}
-	receipt, err := h.runner.Execute(r.Context(), principal, target, draftID, input)
+	receipt, err := h.service.Execute(r.Context(), principal, target, draftID, input)
 	if err != nil {
 		_, code, _ := httpx.ErrorInfo(err)
 		if code == problem.SessionInvalid || code == problem.DatabaseNotFound || code == problem.DatabaseAccessDenied {
 			h.fail(w, r, layout, err)
 			return
-		}
-		// Response hilang atau error persistence masih dapat menyisakan receipt permanen. Baca sekali dengan
-		// batas waktu cleanup; jangan mengulang SQL atau mengganti key.
-		end, _ := r.Context().Deadline()
-		ctx, cancel := cleanupExecutionContext(end, 2*time.Second)
-		stored, lookupErr := h.runner.replay(ctx, target, draftID, principal.UserID, input)
-		cancel()
-		if lookupErr == nil && stored != nil {
-			receipt, err = *stored, nil
 		}
 	}
 	if err != nil {
@@ -201,7 +178,7 @@ func (h *Handler) history(w http.ResponseWriter, r *http.Request) {
 	page := HistoryPage{Layout: layout}
 	if key != uuid.Nil {
 		page.SearchKey = key.String()
-		receipt, err := h.runner.store.Receipt(r.Context(), target, principal.UserID, key)
+		receipt, err := h.service.Receipt(r.Context(), principal, target, key)
 		if err != nil {
 			h.fail(w, r, layout, err)
 			return
@@ -211,7 +188,7 @@ func (h *Handler) history(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		items, more, err := h.runner.store.List(r.Context(), target, int(limit), int(offset))
+		items, more, err := h.service.History(r.Context(), principal, target, int(limit), int(offset))
 		if err != nil {
 			h.fail(w, r, layout, err)
 			return
@@ -248,10 +225,7 @@ func (h *Handler) attempt(w http.ResponseWriter, r *http.Request) {
 	}
 	var a *AttemptDetail
 	if err == nil {
-		a, err = h.runner.store.Get(r.Context(), target, id)
-		if err == nil && a == nil {
-			err = attemptFailure(problem.AttemptNotFound)
-		}
+		a, err = h.service.Attempt(r.Context(), requestPrincipal(r), target, id)
 	}
 	if err != nil {
 		h.fail(w, r, layout, err)

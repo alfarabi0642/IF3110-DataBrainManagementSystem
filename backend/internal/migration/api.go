@@ -2,7 +2,6 @@ package migration
 
 import (
 	"context"
-	"errors"
 	"math"
 	"net/http"
 	"net/url"
@@ -12,10 +11,8 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/access"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/auth"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
-	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 )
 
 type databaseDTO struct {
@@ -86,15 +83,19 @@ type apiScope struct {
 	database  databaseDTO
 }
 
-func NewAPIHandler(store *DraftStore, runner *Runner, authorizer access.Authorizer) (*Handler, error) {
-	if store == nil || store.pool == nil || runner == nil || runner.store == nil || runner.store.pool != store.pool || authorizer == nil {
+type APIHandler struct {
+	service *Service
+}
+
+func NewAPIHandler(service *Service) (*APIHandler, error) {
+	if service == nil {
 		return nil, draftFailure(problem.InternalError)
 	}
-	return &Handler{store: store, runner: runner, authorizer: authorizer}, nil
+	return &APIHandler{service: service}, nil
 }
 
 // RegisterAPI mempertahankan runner sinkron, replay, dan snapshot tersimpan.
-func (h *Handler) RegisterAPI(mux *http.ServeMux, middleware *auth.Middleware) {
+func (h *APIHandler) RegisterAPI(mux *http.ServeMux, middleware *auth.Middleware) {
 	register := func(pattern string, action access.Action, post bool, fn func(http.ResponseWriter, *http.Request, apiScope)) {
 		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			timeout := 10 * time.Second
@@ -128,7 +129,7 @@ func (h *Handler) RegisterAPI(mux *http.ServeMux, middleware *auth.Middleware) {
 	register("GET /api/databases/{database_id}/receipts/{request_key}", access.DatabaseView, false, h.receiptAPI)
 }
 
-func (h *Handler) prepareAPI(r *http.Request, action access.Action) (apiScope, error) {
+func (h *APIHandler) prepareAPI(r *http.Request, action access.Action) (apiScope, error) {
 	var s apiScope
 	var ok bool
 	s.principal, ok = access.FromContext(r.Context())
@@ -139,44 +140,24 @@ func (h *Handler) prepareAPI(r *http.Request, action access.Action) (apiScope, e
 	if err != nil {
 		return s, err
 	}
-	level, err := h.authorizer.RequireDatabase(r.Context(), s.principal, id, action)
+	database, err := h.service.Database(r.Context(), s.principal, id, action)
 	if err != nil {
 		return s, err
 	}
-	s.target, s.database = id, databaseDTO{ID: id.String(), Access: level}
-	lease, err := platformdb.Acquire(r.Context(), h.store.pool)
-	if err != nil {
-		return s, draftFailure(problem.PlatformUnavailable)
-	}
-	defer lease.Release()
-	err = lease.QueryRow(r.Context(), `SELECT name FROM databrain.database_targets WHERE id=$1 AND is_active`, id).Scan(&s.database.Name)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return s, draftFailure(problem.DatabaseNotFound)
-	}
-	if err != nil {
-		return s, draftFailure(problem.PlatformUnavailable)
-	}
+	s.target, s.database = id, databaseDTO{ID: id.String(), Name: database.Name, Access: database.Access}
 	return s, nil
 }
 
-func (h *Handler) draftDTOs(ctx context.Context, drafts []DraftSummary) ([]draftDTO, error) {
-	items, err := h.display(ctx, drafts)
-	if err != nil {
-		return nil, err
+func draftDTOs(drafts []DraftSummary) []draftDTO {
+	result := make([]draftDTO, 0, len(drafts))
+	for _, d := range drafts {
+		result = append(result, draftDTO{ID: d.ID.String(), Title: d.Title, Revision: strconv.FormatInt(d.Revision, 10), UpdatedBy: d.UpdatedByUsername, UpdatedAt: &d.UpdatedAt})
 	}
-	result := make([]draftDTO, 0, len(items))
-	for i, item := range items {
-		result = append(result, draftDTO{ID: item.ID, Title: item.Title, Revision: item.Revision, UpdatedBy: item.UpdatedBy, UpdatedAt: &drafts[i].UpdatedAt})
-	}
-	return result, nil
+	return result
 }
 
-func (h *Handler) writeDraftAPI(w http.ResponseWriter, r *http.Request, s apiScope, d Draft, status int) {
-	items, err := h.draftDTOs(r.Context(), []DraftSummary{d.DraftSummary})
-	if err != nil {
-		httpx.WriteJSONError(w, r, err)
-		return
-	}
+func (h *APIHandler) writeDraftAPI(w http.ResponseWriter, r *http.Request, s apiScope, d Draft, status int) {
+	items := draftDTOs([]DraftSummary{d.DraftSummary})
 	items[0].SQL = &d.SQL
 	httpx.WriteJSON(w, r, status, struct {
 		Database databaseDTO `json:"database"`
@@ -184,16 +165,16 @@ func (h *Handler) writeDraftAPI(w http.ResponseWriter, r *http.Request, s apiSco
 	}{s.database, items[0]}, nil)
 }
 
-func (h *Handler) draftsAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
+func (h *APIHandler) draftsAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
 	limit, offset, err := draftPagination(r)
 	if err != nil {
 		httpx.WriteJSONError(w, r, err)
 		return
 	}
-	drafts, more, err := h.store.List(r.Context(), s.target, limit, offset)
+	drafts, more, err := h.service.ListDrafts(r.Context(), s.principal, s.target, limit, offset)
 	var items []draftDTO
 	if err == nil {
-		items, err = h.draftDTOs(r.Context(), drafts)
+		items = draftDTOs(drafts)
 	}
 	if err != nil {
 		httpx.WriteJSONError(w, r, err)
@@ -205,7 +186,7 @@ func (h *Handler) draftsAPI(w http.ResponseWriter, r *http.Request, s apiScope) 
 	}{s.database, items}, httpx.NewPage(limit, offset, more))
 }
 
-func (h *Handler) draftAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
+func (h *APIHandler) draftAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
 	_, err := httpx.ParseQuery(r)
 	id, idErr := draftPathID(r, "draft_id")
 	if err == nil {
@@ -213,7 +194,7 @@ func (h *Handler) draftAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
 	}
 	var d Draft
 	if err == nil {
-		d, err = h.store.Get(r.Context(), s.target, id)
+		d, err = h.service.GetDraft(r.Context(), s.principal, s.target, id)
 	}
 	if err != nil {
 		httpx.WriteJSONError(w, r, err)
@@ -222,7 +203,7 @@ func (h *Handler) draftAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
 	h.writeDraftAPI(w, r, s, d, 200)
 }
 
-func (h *Handler) createDraftAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
+func (h *APIHandler) createDraftAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
 	var in struct {
 		Title string `json:"title"`
 		SQL   string `json:"sql"`
@@ -230,7 +211,7 @@ func (h *Handler) createDraftAPI(w http.ResponseWriter, r *http.Request, s apiSc
 	err := httpx.DecodeJSON(w, r, httpx.MaxFormBody, &in, []string{"title", "sql"}, nil)
 	var d Draft
 	if err == nil {
-		d, err = h.store.Create(r.Context(), s.target, s.principal.UserID, DraftInput{in.Title, in.SQL})
+		d, err = h.service.CreateDraft(r.Context(), s.principal, s.target, DraftInput{in.Title, in.SQL})
 	}
 	if err != nil {
 		httpx.WriteJSONError(w, r, err)
@@ -240,7 +221,7 @@ func (h *Handler) createDraftAPI(w http.ResponseWriter, r *http.Request, s apiSc
 	h.writeDraftAPI(w, r, s, d, 201)
 }
 
-func (h *Handler) saveDraftAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
+func (h *APIHandler) saveDraftAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
 	var in struct {
 		Title    string `json:"title"`
 		SQL      string `json:"sql"`
@@ -257,7 +238,7 @@ func (h *Handler) saveDraftAPI(w http.ResponseWriter, r *http.Request, s apiScop
 	}
 	var d Draft
 	if err == nil {
-		d, err = h.store.Save(r.Context(), s.target, id, s.principal.UserID, SaveDraftInput{DraftInput{in.Title, in.SQL}, revision})
+		d, err = h.service.SaveDraft(r.Context(), s.principal, s.target, id, SaveDraftInput{DraftInput{in.Title, in.SQL}, revision})
 	}
 	if err != nil {
 		httpx.WriteJSONError(w, r, err)
@@ -266,7 +247,7 @@ func (h *Handler) saveDraftAPI(w http.ResponseWriter, r *http.Request, s apiScop
 	h.writeDraftAPI(w, r, s, d, 200)
 }
 
-func (h *Handler) reviewAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
+func (h *APIHandler) reviewAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
 	id, err := draftPathID(r, "draft_id")
 	values, queryErr := httpx.ParseQuery(r, "expected_revision", "request_key")
 	if err == nil {
@@ -275,23 +256,14 @@ func (h *Handler) reviewAPI(w http.ResponseWriter, r *http.Request, s apiScope) 
 	if err == nil && values.Has("expected_revision") != values.Has("request_key") {
 		err = attemptFailure(problem.InvalidRequest)
 	}
-	var input ReserveInput
-	var d Draft
-	var receipt *AttemptReceipt
+	var input *ReserveInput
 	if err == nil && len(values) != 0 {
-		input, err = reviewInput(values)
-		if err == nil {
-			receipt, err = h.runner.replay(r.Context(), s.target, id, s.principal.UserID, input)
-		}
+		parsed, parseErr := reviewInput(values)
+		input, err = &parsed, parseErr
 	}
-	if err == nil && receipt == nil {
-		d, err = h.store.Get(r.Context(), s.target, id)
-	}
-	if err == nil && len(values) == 0 {
-		input = ReserveInput{d.Revision, uuid.New()}
-	}
-	if err == nil && receipt == nil && input.ExpectedRevision != d.Revision {
-		err = attemptFailure(problem.RevisionConflict)
+	var review Review
+	if err == nil {
+		review, err = h.service.Review(r.Context(), s.principal, s.target, id, input)
 	}
 	if err != nil {
 		httpx.WriteJSONError(w, r, err)
@@ -299,10 +271,11 @@ func (h *Handler) reviewAPI(w http.ResponseWriter, r *http.Request, s apiScope) 
 	}
 	var resultReceipt *receiptDTO
 	var draft *draftDTO
-	if receipt != nil {
-		value := apiReceipt(*receipt)
+	if review.Receipt != nil {
+		value := apiReceipt(*review.Receipt)
 		resultReceipt = &value
 	} else {
+		d := review.Draft
 		draft = &draftDTO{ID: id.String(), Title: d.Title, SQL: &d.SQL, Revision: strconv.FormatInt(d.Revision, 10)}
 	}
 	httpx.WriteJSON(w, r, 200, struct {
@@ -311,10 +284,10 @@ func (h *Handler) reviewAPI(w http.ResponseWriter, r *http.Request, s apiScope) 
 		Revision   string      `json:"expected_revision"`
 		RequestKey string      `json:"request_key"`
 		Receipt    *receiptDTO `json:"receipt"`
-	}{s.database, draft, strconv.FormatInt(input.ExpectedRevision, 10), input.RequestKey.String(), resultReceipt}, nil)
+	}{s.database, draft, strconv.FormatInt(review.Input.ExpectedRevision, 10), review.Input.RequestKey.String(), resultReceipt}, nil)
 }
 
-func (h *Handler) executeAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
+func (h *APIHandler) executeAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
 	var in struct {
 		Revision string `json:"expected_revision"`
 		Key      string `json:"request_key"`
@@ -332,20 +305,7 @@ func (h *Handler) executeAPI(w http.ResponseWriter, r *http.Request, s apiScope)
 		httpx.WriteJSONError(w, r, err)
 		return
 	}
-	receipt, err := h.runner.Execute(r.Context(), s.principal, s.target, id, input)
-	if err != nil {
-		_, code, _ := httpx.ErrorInfo(err)
-		if code != problem.SessionInvalid && code != problem.DatabaseNotFound && code != problem.DatabaseAccessDenied {
-			// Baca receipt setelah error persistence tanpa mengulang eksekusi atau mengganti key.
-			end, _ := r.Context().Deadline()
-			ctx, cancel := cleanupExecutionContext(end, 2*time.Second)
-			stored, lookupErr := h.runner.replay(ctx, s.target, id, s.principal.UserID, input)
-			cancel()
-			if lookupErr == nil && stored != nil {
-				receipt, err = *stored, nil
-			}
-		}
-	}
+	receipt, err := h.service.Execute(r.Context(), s.principal, s.target, id, input)
 	if err != nil {
 		httpx.WriteJSONError(w, r, err)
 		return
@@ -353,13 +313,13 @@ func (h *Handler) executeAPI(w http.ResponseWriter, r *http.Request, s apiScope)
 	httpx.WriteJSON(w, r, 200, apiReceipt(receipt), nil)
 }
 
-func (h *Handler) historyAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
+func (h *APIHandler) historyAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
 	limit, offset, err := draftPagination(r)
 	if err != nil {
 		httpx.WriteJSONError(w, r, err)
 		return
 	}
-	items, more, err := h.runner.store.List(r.Context(), s.target, limit, offset)
+	items, more, err := h.service.History(r.Context(), s.principal, s.target, limit, offset)
 	if err != nil {
 		httpx.WriteJSONError(w, r, err)
 		return
@@ -374,7 +334,7 @@ func (h *Handler) historyAPI(w http.ResponseWriter, r *http.Request, s apiScope)
 	}{s.database, attempts}, httpx.NewPage(limit, offset, more))
 }
 
-func (h *Handler) attemptAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
+func (h *APIHandler) attemptAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
 	_, err := httpx.ParseQuery(r)
 	id, idErr := draftPathID(r, "attempt_id")
 	if err == nil {
@@ -382,10 +342,7 @@ func (h *Handler) attemptAPI(w http.ResponseWriter, r *http.Request, s apiScope)
 	}
 	var a *AttemptDetail
 	if err == nil {
-		a, err = h.runner.store.Get(r.Context(), s.target, id)
-		if err == nil && a == nil {
-			err = attemptFailure(problem.AttemptNotFound)
-		}
+		a, err = h.service.Attempt(r.Context(), s.principal, s.target, id)
 	}
 	if err != nil {
 		httpx.WriteJSONError(w, r, err)
@@ -405,7 +362,7 @@ func (h *Handler) attemptAPI(w http.ResponseWriter, r *http.Request, s apiScope)
 	}{s.database, item}, nil)
 }
 
-func (h *Handler) receiptAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
+func (h *APIHandler) receiptAPI(w http.ResponseWriter, r *http.Request, s apiScope) {
 	_, err := httpx.ParseQuery(r)
 	key, keyErr := draftPathID(r, "request_key")
 	if err == nil {
@@ -413,7 +370,7 @@ func (h *Handler) receiptAPI(w http.ResponseWriter, r *http.Request, s apiScope)
 	}
 	var receipt *AttemptReceipt
 	if err == nil {
-		receipt, err = h.runner.store.Receipt(r.Context(), s.target, s.principal.UserID, key)
+		receipt, err = h.service.Receipt(r.Context(), s.principal, s.target, key)
 		if err == nil && receipt == nil {
 			err = attemptFailure(problem.AttemptNotFound)
 		}

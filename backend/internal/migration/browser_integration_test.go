@@ -52,7 +52,11 @@ func TestBrowserSPA(t *testing.T) {
 	}
 	accounts.RegisterAPI(apiMux, middleware)
 	explorer.New(provider).RegisterAPI(apiMux, middleware, f.store.pool, f.guard)
-	handler, err := NewAPIHandler(f.store, f.runner, f.guard)
+	migrations, err := NewService(f.store, f.runner, f.guard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewAPIHandler(migrations)
 	if err != nil {
 		t.Fatal(err)
 	}
