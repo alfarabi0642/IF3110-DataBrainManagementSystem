@@ -44,6 +44,7 @@ func newWorkflowFixture(t *testing.T, origin string) (runnerFixture, draftHTTPFi
 	}
 	mux := httpx.NewRouter(f.db.Ready)
 	handler.Register(mux, middleware)
+	handler.RegisterAPI(mux, middleware)
 	assets, err := httpx.MountStatic(mux, "../../web/static")
 	if err != nil {
 		t.Fatal(err)
