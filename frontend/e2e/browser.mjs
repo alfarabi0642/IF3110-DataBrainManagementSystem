@@ -29,8 +29,10 @@ try {
   const submit = async (action, status) => {
     const result = page.waitForResponse(r => r.url().split('?')[0] === origin + '/api' + action && r.request().method() === 'POST');
     await page.$eval(`form[action="${action}"]`, f => f.requestSubmit());
-    assert.equal((await result).status(), status);
+    const response = await result;
+    assert.equal(response.status(), status);
     await page.waitForFunction(() => [...document.querySelectorAll('button')].every(b => !b.disabled));
+    return response;
   };
   const api = (path, body) => page.evaluate(async (path, body) => {
     const session = await (await fetch('/api/session')).json();
@@ -48,6 +50,52 @@ try {
   checks.push('actual login invalid/valid, cookie session and CSRF');
   const users = await api('/admin/users'), groups = await api('/admin/groups');
   assert.equal(users.status, 200); assert.equal(groups.status, 200);
+  const connectionPath = '/admin/databases/' + process.env.E2E_TARGET;
+  for (const [width, height] of [[1440, 1000], [390, 844]]) {
+    await page.setViewport({ width, height, deviceScaleFactor: 1, isMobile: false, hasTouch: false });
+    const original = (await api(connectionPath)).data;
+    const update = (revision, name) => api(connectionPath, { expected_revision: revision, name,
+      username: original.username, ssl_mode: original.ssl_mode, is_active: original.is_active });
+    await go(connectionPath);
+    const concurrent = await update(original.config_revision, 'Concurrent connection');
+    assert.equal(concurrent.status, 200);
+    await fill('#name', 'Preserved connection input'); await submit(connectionPath, 409);
+    assert.equal(await page.$eval('#name', e => e.value), 'Preserved connection input');
+    assert.equal(await page.$eval('form.form-panel button', e => e.textContent), 'Save over the current version');
+    await fill('#name', '   ');
+    const invalid = await submit(connectionPath, 422);
+    assert.equal((await invalid.json()).error.code, 'VALIDATION_FAILED');
+    assert.equal(await page.$eval('[name=expected_revision]', e => e.value), concurrent.data.config_revision);
+    await fill('#name', 'Preserved connection input');
+    let interruptedRevision;
+    const interrupt = request => {
+      if (new URL(request.url()).pathname === '/api' + connectionPath && request.method() === 'POST') {
+        interruptedRevision = JSON.parse(request.postData()).expected_revision;
+        void request.abort('failed');
+      } else void request.continue();
+    };
+    await page.setRequestInterception(true); page.on('request', interrupt);
+    await page.$eval(`form[action="${connectionPath}"]`, f => f.requestSubmit());
+    await page.waitForFunction(() => document.querySelector('[role=alert]')?.textContent.includes('Unable to reach the server.'));
+    await page.setRequestInterception(false); page.off('request', interrupt);
+    assert.equal(interruptedRevision, concurrent.data.config_revision);
+    assert.equal(await page.$eval('[name=expected_revision]', e => e.value), concurrent.data.config_revision);
+    const newer = await update(concurrent.data.config_revision, 'Newer concurrent connection');
+    assert.equal(newer.status, 200);
+    const conflict = await submit(connectionPath, 409);
+    assert.equal(JSON.parse(conflict.request().postData()).expected_revision, concurrent.data.config_revision);
+    assert.equal((await conflict.json()).error.code, 'REVISION_CONFLICT');
+    assert.equal((await api(connectionPath)).data.name, 'Newer concurrent connection');
+    assert.equal(await page.$eval('#name', e => e.value), 'Preserved connection input');
+    assert.equal(await page.$eval('form.form-panel button', e => e.textContent), 'Save over the current version');
+    await fill('#name', '   '); await submit(connectionPath, 422);
+    assert.equal(await page.$eval('[name=expected_revision]', e => e.value), newer.data.config_revision);
+    await fill('#name', original.name);
+    const retry = await submit(connectionPath, 200);
+    assert.equal(JSON.parse(retry.request().postData()).expected_revision, newer.data.config_revision);
+    assert.equal((await api(connectionPath)).data.name, original.name);
+  }
+  checks.push('connection overwrite survives validation/network errors on desktop/mobile; later revisions require explicit overwrite');
   const created = await api(base + '/drafts', { title: 'Browser draft', sql: 'NOT SQL;' });
   assert.equal(created.status, 201);
   const draftPath = base + '/drafts/' + created.data.draft.id;

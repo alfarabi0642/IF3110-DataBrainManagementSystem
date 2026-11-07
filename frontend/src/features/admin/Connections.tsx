@@ -53,10 +53,14 @@ export function ConnectionProfile({ connection, session, saved }: { connection: 
   const revision = useRef(connection.config_revision);
   const [probe, setProbe] = useState<Probe>();
   const base = `/admin/databases/${connection.id}`;
-  const edit = useAdminAction<Connection>(session, base, () => ({ expected_revision: conflict ? connection.config_revision : revision.current,
-    name: text(form.current, 'name'), username: text(form.current, 'username'), password: takePassword(form.current),
-    ssl_mode: text(form.current, 'ssl_mode'), is_active: text(form.current, 'is_active') === 'true',
-  }), saved);
+  const edit = useAdminAction<Connection>(session, base, () => {
+    // Pertahankan revision yang dipilih saat overwrite untuk retry setelah error.
+    if (conflict) revision.current = connection.config_revision;
+    return { expected_revision: revision.current,
+      name: text(form.current, 'name'), username: text(form.current, 'username'), password: takePassword(form.current),
+      ssl_mode: text(form.current, 'ssl_mode'), is_active: text(form.current, 'is_active') === 'true',
+    };
+  }, saved);
   const test = useAdminAction<Probe>(session, `${base}/test`, () => ({}), setProbe);
   const conflict: boolean = edit.error instanceof ApiError && edit.error.code === 'REVISION_CONFLICT';
   return <>
