@@ -4,12 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"html/template"
-	"io/fs"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"unicode"
 
@@ -17,45 +13,6 @@ import (
 )
 
 const MaxResponseBytes = 4 << 20
-
-type Renderer struct {
-	templates *template.Template
-}
-
-// HasTemplate memeriksa ketersediaan template sebelum route dipasang.
-func (renderer *Renderer) HasTemplate(name string) bool {
-	return renderer != nil && renderer.templates != nil && renderer.templates.Lookup(name) != nil
-}
-
-// LoadTemplates menerima direktori UI yang belum ada. Jika ada, seluruh template .html harus valid;
-// error baca/parse menghentikan startup.
-func LoadTemplates(dir string) (*Renderer, error) {
-	info, err := os.Stat(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil || !info.IsDir() {
-		return nil, &problem.Error{Code: problem.InternalError}
-	}
-	var files []string
-	err = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !entry.IsDir() && filepath.Ext(path) == ".html" {
-			files = append(files, path)
-		}
-		return nil
-	})
-	if err != nil || len(files) == 0 {
-		return nil, &problem.Error{Code: problem.InternalError}
-	}
-	templates, err := template.ParseFiles(files...)
-	if err != nil {
-		return nil, &problem.Error{Code: problem.InternalError}
-	}
-	return &Renderer{templates: templates}, nil
-}
 
 var errResultTooLarge = &problem.Error{Code: problem.ResultTooLarge}
 
@@ -68,26 +25,6 @@ func (b *renderBuffer) Write(p []byte) (int, error) {
 		return 0, errResultTooLarge
 	}
 	return b.buffer.Write(p)
-}
-
-// Render baru menulis response setelah template dan batas ukuran HTML lolos. Data error form hanya
-// boleh memakai SafeFormValues terpilih, tanpa request atau form asli.
-func (renderer *Renderer) Render(w http.ResponseWriter, r *http.Request, status int, name string, data any) error {
-	if renderer == nil || renderer.templates == nil || status < 200 || status > 599 {
-		return &problem.Error{Code: problem.InternalError}
-	}
-	var body renderBuffer
-	if err := renderer.templates.ExecuteTemplate(&body, name, data); err != nil {
-		if errors.Is(err, errResultTooLarge) {
-			return errResultTooLarge
-		}
-		return &problem.Error{Code: problem.InternalError}
-	}
-	pageHeaders(w, r)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	_, err := w.Write(body.buffer.Bytes())
-	return err
 }
 
 // ErrorInfo memetakan kode ke pesan publik tetap. Message dari error tidak ditampilkan; error mentah,
@@ -175,47 +112,7 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 	return 500, problem.InternalError, "Internal server error."
 }
 
-// LayoutUser berisi identitas login untuk header bersama.
-type LayoutUser struct {
-	DisplayName string
-	Username    string
-	IsAdmin     bool
-}
-
-// LayoutDatabase berisi database halaman; CanEdit menentukan tampilan link Drafts.
-type LayoutDatabase struct {
-	ID      string
-	Name    string
-	CanEdit bool
-}
-
-// Layout disisipkan pada data halaman. User nil menyembunyikan navigasi login/logout; Database nil
-// dipakai di luar halaman database. Active memilih item navigasi aktif.
-type Layout struct {
-	Title    string
-	CSRF     string
-	Active   string
-	User     *LayoutUser
-	Database *LayoutDatabase
-}
-
-type errorPage struct {
-	Layout
-	Message, Code, RequestID string
-}
-
-// RenderError menampilkan pesan tetap dari ErrorInfo. Jika render gagal, gunakan WriteError teks
-// biasa.
-func (renderer *Renderer) RenderError(w http.ResponseWriter, r *http.Request, layout Layout, err error) {
-	status, code, message := ErrorInfo(err)
-	layout.Title = "Error"
-	page := errorPage{Layout: layout, Message: message, Code: string(code), RequestID: RequestID(r.Context())}
-	if renderer.Render(w, r, status, "error", page) != nil {
-		WriteError(w, r, err)
-	}
-}
-
-// WriteError dipakai sebelum renderer atau session tersedia dan tidak menampilkan error mentah.
+// WriteError menjaga format API/teks tanpa membocorkan error mentah.
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	if IsAPI(r) {
 		WriteJSONError(w, r, err)

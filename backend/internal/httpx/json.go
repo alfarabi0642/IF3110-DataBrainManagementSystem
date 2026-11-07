@@ -196,3 +196,23 @@ func APIHandler(mux *http.ServeMux) http.Handler {
 		WriteJSONError(w, r, &problem.Error{Code: code})
 	})
 }
+
+type routeProbe struct {
+	header http.Header
+	status int
+}
+
+func (w *routeProbe) Header() http.Header { return w.header }
+
+func (w *routeProbe) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+}
+
+func (w *routeProbe) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return len(p), nil
+}

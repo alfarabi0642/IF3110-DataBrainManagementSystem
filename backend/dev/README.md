@@ -8,7 +8,7 @@ Jalankan perintah Docker dari root repository. Docker Desktop dengan Linux conta
 docker compose -f infra/compose.yaml up -d --build --wait
 ```
 
-Buka http://localhost:8080. Build context adalah root repository; stage Node membangun React, stage Go membangun API/CLI dan image akhir melayani SPA, static asset serta `/api` pada satu origin. Compose menginisialisasi role dan database **sekali**, saat volume kosong, melalui `setup.sql`. Entrypoint app menjalankan migration platform dan bootstrap admin; admin aktif yang sudah ada adalah hasil idempoten. Password tidak valid, koneksi gagal, atau error lain menghentikan startup dengan pesan aman. Jangan menjalankan setup.sql atau server host bersamaan.
+Buka http://localhost:8080 dengan hostname dan port yang sama persis dengan `APP_ORIGIN`. Build context adalah root repository; stage Node membangun React, stage Go membangun API/CLI dan image akhir melayani SPA, static asset serta `/api` pada satu origin. Compose menginisialisasi role dan database **sekali**, saat volume kosong, melalui `setup.sql`. Entrypoint app menjalankan migration platform dan bootstrap admin; admin aktif yang sudah ada adalah hasil idempoten. Password tidak valid, koneksi gagal, atau error lain menghentikan startup dengan pesan aman. Jangan menjalankan setup.sql atau server host bersamaan.
 
 Restart dengan perintah yang sama, atau `docker compose -f infra/compose.yaml restart app`. Hentikan dengan `docker compose -f infra/compose.yaml down` tanpa `-v`; volume dan School Demo tetap tersimpan.
 
