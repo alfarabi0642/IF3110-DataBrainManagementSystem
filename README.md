@@ -1,6 +1,6 @@
 # DataBrain Management System
 
-Aplikasi Go dengan HTML dari server untuk mengatur akses PostgreSQL, melihat schema/data, dan menjalankan migration transaksional dengan riwayat permanen. Alur inti dapat dipakai tanpa JavaScript.
+Aplikasi Go dan React SPA untuk mengatur akses PostgreSQL, melihat schema/data, dan menjalankan migration transaksional dengan riwayat permanen. Login, administrasi, explorer, draft, review, execute dan history memakai JSON API pada origin yang sama.
 
 ## Menjalankan aplikasi
 
@@ -15,6 +15,25 @@ docker compose -f infra/compose.yaml up -d --build --wait
 Buka [localhost:8080](http://localhost:8080). Akun development awal adalah `admin`, password `AdminPassword123!`. Nilai contoh ini hanya untuk fixture lokal. Runner hanya menampilkan URL dan username. `APP_SECRET_KEY` harus tetap sama saat restart agar credential target dan token session tetap dapat dibaca.
 
 ## Pengujian
+
+Frontend dan browser suite memerlukan Node.js 22.12+ dan npm. Dari `frontend/`:
+
+```sh
+npm ci
+npm run typecheck
+npm run test:run
+npm run build
+```
+
+Go memerlukan build `frontend/dist` saat startup; semua browser route aplikasi melayani SPA, termasuk direct URL dan refresh. `/api` tetap JSON, dan asset yang tidak ditemukan mengembalikan error tanpa HTML aplikasi. Image Docker membangun frontend dan Go bersama dari root repository. Build output dan `node_modules` tidak disimpan di Git.
+
+`npm run test:e2e` memerlukan Chrome dan PostgreSQL disposable dengan identitas fixture yang diverifikasi; setup dan command lengkap ada pada panduan development. Perintah ini gagal bila konfigurasi fixture tidak tersedia. Screenshot dan hasil browser disimpan lokal di `.tmp/e2e`, bukan di Git.
+
+Untuk development dengan Vite, jalankan backend dengan `APP_ORIGIN=http://127.0.0.1:5173`, lalu `npm run dev` dari `frontend/` dan buka origin tersebut. Runner `run-dev.ps1`/`run-dev.sh` mempertahankan override `APP_ORIGIN` dari environment; default tanpa override tetap `http://localhost:8080`. Proxy meneruskan `/api`, `/static` dan `/healthz` ke `http://127.0.0.1:8080`; atur `API_PROXY_TARGET` bila alamat backend berbeda. Proxy mempertahankan Origin browser; pemeriksaan session/CSRF tetap aktif. Jangan memakai origin backend untuk login ketika konfigurasi Origin menunjuk Vite.
+
+API meliputi `/api/session`, `/api/login`, `/api/logout`, `/api/admin/{users,groups,databases}`, `/api/databases` dan resource target `/api/databases/{id}/{explorer,drafts,history,attempts,receipts}`. Success memakai `{data,request_id}` (list menambah `page`); error memakai `{error:{code,message},request_id}` dengan HTTP status sebenarnya. API tidak melakukan redirect login. Bootstrap memberi state `anonymous`, `authenticated` atau `reauth_required`, identitas minimum, `csrf_token` dan `absolute_expires_at`; session tetap cookie HttpOnly.
+
+Login menerima JSON `{username,password}`, logout menerima `{}`. Semua mutasi memerlukan tepat satu header `X-CSRF-Token` dari bootstrap dan Origin yang sama dengan `APP_ORIGIN`. Login gagal memakai 401 `INVALID_CREDENTIALS`, rate limit 429 `LOGIN_RATE_LIMITED` dengan `Retry-After`, session invalid 401 `SESSION_INVALID`, dan reauth 401 `REAUTH_REQUIRED` pada API terlindungi. Client membaca ulang bootstrap setelah mutasi, membersihkan protected cache saat logout/pergantian identitas atau family, dan tidak mengulang mutasi otomatis saat session/CSRF kedaluwarsa. Token CSRF hanya disimpan dalam memory browser.
 
 Pemeriksaan cepat dari `backend/` memerlukan Go 1.27.3:
 

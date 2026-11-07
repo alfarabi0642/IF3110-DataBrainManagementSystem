@@ -21,35 +21,35 @@ const (
 )
 
 type Table struct {
-	Schema string
-	Name   string
-	Kind   string // r: tabel biasa; p: tabel berpartisi.
+	Schema string `json:"schema"`
+	Name   string `json:"name"`
+	Kind   string `json:"kind"` // r: tabel biasa; p: tabel berpartisi.
 }
 
 type Column struct {
-	Ordinal   int
-	Name      string
-	Type      string
-	Nullable  bool
-	Default   *string // nil berarti tanpa ekspresi default.
-	Identity  string  // Kode PostgreSQL: a (always), d (by default), atau kosong.
-	Generated string  // Kode PostgreSQL: s (stored), atau kosong.
+	Ordinal   int     `json:"ordinal"`
+	Name      string  `json:"name"`
+	Type      string  `json:"type"`
+	Nullable  bool    `json:"nullable"`
+	Default   *string `json:"default"`   // nil berarti tanpa ekspresi default.
+	Identity  string  `json:"identity"`  // Kode PostgreSQL: a (always), d (by default), atau kosong.
+	Generated string  `json:"generated"` // Kode PostgreSQL: s (stored), atau kosong.
 }
 
 type Constraint struct {
-	Name       string
-	Kind       string // Kode contype PostgreSQL.
-	Columns    []string
-	Definition string
+	Name       string   `json:"name"`
+	Kind       string   `json:"kind"` // Kode contype PostgreSQL.
+	Columns    []string `json:"columns"`
+	Definition string   `json:"definition"`
 }
 
 type Index struct {
-	Name       string
-	Method     string
-	Unique     bool
-	Primary    bool
-	Valid      bool
-	Definition string
+	Name       string `json:"name"`
+	Method     string `json:"method"`
+	Unique     bool   `json:"unique"`
+	Primary    bool   `json:"primary"`
+	Valid      bool   `json:"valid"`
+	Definition string `json:"definition"`
 }
 
 // Catalog berisi schema, tabel, atau metadata satu tabel sesuai pilihan. Credential koneksi dan data

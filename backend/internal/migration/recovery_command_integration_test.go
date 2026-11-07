@@ -89,6 +89,20 @@ func TestRecoveryStartupAndCommandPostgres(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM databrain.migration_attempts WHERE state='unknown' AND first_unknown_at IS NOT NULL`).Scan(&unknown); err != nil || unknown != 2 {
 		t.Fatal("API accepted traffic before recovering both orphan states")
 	}
+	secondCtx, stopSecond := context.WithTimeout(ctx, 10*time.Second)
+	defer stopSecond()
+	secondPort, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal("cannot reserve second server address")
+	}
+	secondAddress := secondPort.Addr().String()
+	_ = secondPort.Close()
+	second := exec.CommandContext(secondCtx, api)
+	second.Dir = module
+	second.Env = append(append([]string{}, env...), "HTTP_ADDR="+secondAddress)
+	if output, err := second.CombinedOutput(); err == nil || secondCtx.Err() != nil || !strings.Contains(string(output), "another server holds the platform process lock") {
+		t.Fatal("second API process was not rejected by the process lock")
+	}
 	evidence := filepath.Join(dir, "evidence.txt")
 	const private = "PRIVATE_OPERATOR_EVIDENCE\r\nTest reservation and target inspection confirm no SQL started.\n"
 	if err := os.WriteFile(evidence, []byte(private), 0600); err != nil {

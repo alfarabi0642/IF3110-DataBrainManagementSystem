@@ -18,15 +18,16 @@ services:
       - ${DATABRAIN_FIXTURE_DATA_DIR:-pgdata}:/var/lib/postgresql/data
       - ../backend/dev/setup.sql:/docker-entrypoint-initdb.d/01-setup.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U databrain_fixture_owner -d postgres"]
+      # Server sementara saat init hanya membuka Unix socket.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U databrain_fixture_owner -d postgres"]
       interval: 2s
       timeout: 3s
       retries: 30
 
   app:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
     ports:
       - "127.0.0.1:${DATABRAIN_HTTP_PORT:-8080}:8080"
     depends_on:

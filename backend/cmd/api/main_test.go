@@ -8,8 +8,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -19,25 +17,17 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
 )
 
-func TestStartupRejectsInvalidTemplates(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
+func TestStartupRejectsInvalidAssetConfig(t *testing.T) {
 	t.Setenv("APP_ENV", "development")
 	t.Setenv("APP_ORIGIN", "http://localhost:8080")
 	t.Setenv("HTTP_ADDR", "127.0.0.1:8080")
-	templates := filepath.Join(dir, "web", "templates")
-	if err := os.MkdirAll(templates, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(templates, "page.html"), []byte(`{{SENSITIVE`), 0600); err != nil {
-		t.Fatal(err)
-	}
+	t.Setenv("SPA_DIR", "")
 	var logs bytes.Buffer
 	if err := run(slog.New(slog.NewTextHandler(&logs, nil))); err == nil {
-		t.Fatal("invalid template did not reject startup")
+		t.Fatal("invalid asset configuration did not reject startup")
 	}
-	if strings.Contains(logs.String(), "SENSITIVE") || strings.Contains(logs.String(), dir) {
-		t.Fatal("template error leaked source/path in logs")
+	if !strings.Contains(logs.String(), "SPA_DIR") {
+		t.Fatal("startup did not identify the invalid asset configuration")
 	}
 }
 

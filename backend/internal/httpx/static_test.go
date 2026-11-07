@@ -18,7 +18,7 @@ func TestProjectAssetsRemainAvailable(t *testing.T) {
 	}
 	defer root.Close()
 	for _, asset := range []struct{ name, contentType string }{
-		{"app.js", "javascript"}, {"favicon.svg", "image/svg+xml"}, {"style.css", "text/css"},
+		{"favicon.svg", "image/svg+xml"}, {"style.css", "text/css"},
 	} {
 		want, err := os.ReadFile("../../web/static/" + asset.name)
 		if err != nil {

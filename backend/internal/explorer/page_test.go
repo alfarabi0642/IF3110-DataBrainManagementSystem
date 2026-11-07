@@ -2,12 +2,9 @@ package explorer
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -54,38 +51,4 @@ func TestPageErrorRedaction(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	checkCode(t, rowValueError(ctx, &pgconn.PgError{Code: "22000", Message: "SENSITIVE"}), problem.RequestTimeout)
-}
-
-func TestRowPageRenderLimit(t *testing.T) {
-	renderer, err := httpx.LoadTemplates("../../web/templates")
-	if err != nil || renderer == nil {
-		t.Fatal("real explorer template unavailable")
-	}
-	data := map[string]any{"Columns": []string{"value"}, "Rows": [][]Cell{{{Null: true}}, {{Text: "null"}}, {{Text: ""}}, {{Text: "<script>"}}}, "Ordering": "unspecified", "Prev": "", "Next": ""}
-	page := map[string]any{"Title": "Rows", "User": nil, "Database": nil, "Schema": "public", "Table": "rows", "Tab": "data", "Tabs": nil, "AllHref": "", "SchemaHref": "", "Data": data}
-	w := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/", nil)
-	if err := renderer.Render(w, request, 200, "explorer", page); err != nil {
-		t.Fatal("cannot render row cells with real template")
-	}
-	for _, expected := range []string{`<span class="null">NULL</span>`, `(empty)`, `&lt;script&gt;`, `>null</td>`} {
-		if !strings.Contains(w.Body.String(), expected) {
-			t.Fatal("NULL, literal text, empty string or escaped text lost in rendering")
-		}
-	}
-	// Banyak sel NULL tidak memakai byte teks mentah, tetapi tetap dapat melewati batas ukuran HTML.
-	columns, row := make([]string, 600), make([]Cell, 600)
-	for i := range columns {
-		columns[i], row[i] = "column", Cell{Null: true}
-	}
-	rows := make([][]Cell, 200)
-	for i := range rows {
-		rows[i] = row
-	}
-	data["Columns"], data["Rows"] = columns, rows
-	w = httptest.NewRecorder()
-	checkCode(t, renderer.Render(w, request, 200, "explorer", page), problem.ResultTooLarge)
-	if w.Body.Len() != 0 || w.Header().Get("Content-Type") != "" {
-		t.Fatal("oversized HTML sent a partial response")
-	}
 }

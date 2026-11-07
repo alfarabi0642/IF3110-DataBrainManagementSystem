@@ -16,6 +16,8 @@ type Config struct {
 	AppEnv            string
 	AppOrigin         string
 	TrustedProxyCIDRs string
+	SPADir            string
+	StaticDir         string
 }
 
 func Load() (Config, error) {
@@ -30,8 +32,13 @@ func load(lookup func(string) (string, bool)) (Config, error) {
 		return fallback
 	}
 	cfg := Config{
-		HTTPAddr: value("HTTP_ADDR", "127.0.0.1:8080"),
-		AppEnv:   value("APP_ENV", "development"),
+		HTTPAddr:  value("HTTP_ADDR", "127.0.0.1:8080"),
+		AppEnv:    value("APP_ENV", "development"),
+		SPADir:    value("SPA_DIR", "../frontend/dist"),
+		StaticDir: value("STATIC_DIR", "web/static"),
+	}
+	if strings.TrimSpace(cfg.SPADir) == "" || strings.TrimSpace(cfg.StaticDir) == "" {
+		return Config{}, fmt.Errorf("SPA_DIR and STATIC_DIR must not be empty")
 	}
 	switch cfg.AppEnv {
 	case "development", "test", "production":

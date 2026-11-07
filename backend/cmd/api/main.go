@@ -41,11 +41,6 @@ func run(logger *slog.Logger) (err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	renderer, err := httpx.LoadTemplates("web/templates")
-	if err != nil {
-		logger.Error("unable to load HTML templates")
-		return err
-	}
 	key, err := config.LoadSecretKey()
 	if err != nil {
 		logger.Error("invalid application secret configuration")
@@ -99,61 +94,59 @@ func run(logger *slog.Logger) (err error) {
 	if err != nil {
 		return err
 	}
+	apiMux := http.NewServeMux()
+	middleware.RegisterSessionAPI(apiMux)
+	provider.RegisterListAPI(apiMux, middleware)
 	authorizer, err := access.NewAuthorizer(db.Pool)
 	if err != nil {
 		return err
 	}
-	authHandler, err := auth.NewHandler(sessions, renderer)
-	if err != nil {
-		logger.Error("authentication page templates unavailable")
-		return err
-	}
-	authHandler.Register(mux)
-	mux.Handle("GET /{$}", middleware.RequireSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = httpx.SeeOther(w, r, "/databases")
-	})))
 	adminService, err := admin.NewService(db.Pool, sessions)
 	if err != nil {
 		return err
 	}
-	adminHandler, err := admin.NewHandler(adminService, sessions, renderer)
-	if err != nil {
-		logger.Error("administration page templates unavailable")
-		return err
-	}
-	adminHandler.Register(mux)
-	handler, err := targets.NewHandler(provider, authorizer, renderer)
-	if err != nil {
-		logger.Error("database page templates unavailable")
-		return err
-	}
-	if !handler.Register(mux, middleware) {
-		logger.Info("admin connection routes pending admin_databases and admin_database templates")
-	}
-	explorerHandler, err := explorer.NewHandler(explorer.New(provider), db.Pool, authorizer, renderer)
-	if err != nil {
-		logger.Error("explorer page templates unavailable")
-		return err
-	}
-	explorerHandler.Register(mux, middleware)
+	adminService.RegisterAPI(apiMux, middleware)
+	provider.RegisterAdminAPI(apiMux, middleware, authorizer)
+	explorerService := explorer.New(provider)
+	explorerService.RegisterAPI(apiMux, middleware, db.Pool, authorizer)
 	runner, err := migration.NewRunner(migration.NewAttemptStore(db.Pool), provider, authorizer)
 	if err != nil {
 		return err
 	}
-	draftHandler, err := migration.NewHandler(migration.NewDraftStore(db.Pool), runner, authorizer, renderer)
+	migrationService, err := migration.NewService(migration.NewDraftStore(db.Pool), runner, authorizer)
 	if err != nil {
-		logger.Error("migration page templates unavailable")
 		return err
 	}
-	draftHandler.Register(mux, middleware)
-	assets, err := httpx.MountStatic(mux, "web/static")
+	draftHandler, err := migration.NewAPIHandler(migrationService)
 	if err != nil {
+		return err
+	}
+	draftHandler.RegisterAPI(apiMux, middleware)
+	assets, err := httpx.MountStatic(mux, cfg.StaticDir)
+	if err != nil || assets == nil {
 		logger.Error("unable to open static directory")
+		if err == nil {
+			err = os.ErrNotExist
+		}
 		return err
 	}
-	if assets != nil {
-		defer assets.Close()
+	defer assets.Close()
+	application, frontend, err := httpx.SPA(mux, cfg.SPADir)
+	if err != nil {
+		logger.Error("unable to open frontend build")
+		return err
 	}
+	if frontend != nil {
+		defer frontend.Close()
+	}
+	api := httpx.APIHandler(apiMux)
+	routes := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if httpx.IsAPI(r) {
+			api.ServeHTTP(w, r)
+			return
+		}
+		application.ServeHTTP(w, r)
+	})
 	listener, err := net.Listen("tcp", cfg.HTTPAddr)
 	if err != nil {
 		return err
@@ -169,7 +162,7 @@ func run(logger *slog.Logger) (err error) {
 		<-cleanupDone
 	}()
 	logger.Info("HTTP server listening; platform ready")
-	return serveHTTP(ctx, newServer(cfg, httpx.Middleware(logger, httpx.ErrorPages(renderer, mux))), listener, db.Lost())
+	return serveHTTP(ctx, newServer(cfg, httpx.Middleware(logger, routes)), listener, db.Lost())
 }
 
 func runSessionCleanup(ctx context.Context, interval time.Duration, cleanup func(context.Context) error, logger *slog.Logger) {
