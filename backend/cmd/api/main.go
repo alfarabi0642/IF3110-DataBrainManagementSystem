@@ -21,12 +21,14 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/secret"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/targets"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/telemetry"
 )
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logger := telemetry.NewLogger(telemetry.ServiceAPI)
+	slog.SetDefault(logger)
 	if err := run(logger); err != nil {
-		// Pesan konfigurasi hanya menyebut field dan aturan; detail jaringan tetap privat.
+		// Pesan konfigurasi hanya menyebut field dan aturan
 		logger.Error("HTTP server stopped", "code", "HTTP_SERVER_FAILED")
 		os.Exit(1)
 	}
@@ -40,6 +42,17 @@ func run(logger *slog.Logger) (err error) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	tracer, tracerErr := telemetry.NewTracerProvider(telemetry.ServiceAPI, logger)
+	if tracerErr != nil {
+		logger.Error("telemetry initialization failed", "code", "TELEMETRY_INIT_FAILED")
+	} else {
+		defer func() {
+			if shutdownErr := telemetry.Shutdown(tracer); shutdownErr != nil {
+				logger.Error("telemetry shutdown incomplete", "code", "TELEMETRY_SHUTDOWN_FAILED")
+			}
+		}()
+	}
 
 	key, err := config.LoadSecretKey()
 	if err != nil {
@@ -121,6 +134,7 @@ func run(logger *slog.Logger) (err error) {
 	if err != nil {
 		return err
 	}
+	draftHandler.RetireLegacyExecute()
 	draftHandler.RegisterAPI(apiMux, middleware)
 	assets, err := httpx.MountStatic(mux, cfg.StaticDir)
 	if err != nil || assets == nil {
@@ -165,6 +179,7 @@ func run(logger *slog.Logger) (err error) {
 	return serveHTTP(ctx, newServer(cfg, httpx.Middleware(logger, routes)), listener, db.Lost())
 }
 
+// Clean expired session
 func runSessionCleanup(ctx context.Context, interval time.Duration, cleanup func(context.Context) error, logger *slog.Logger) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -180,10 +195,11 @@ func runSessionCleanup(ctx context.Context, interval time.Duration, cleanup func
 	}
 }
 
+// build new http server
 func newServer(cfg config.Config, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           handler,
+		Handler:           telemetry.HTTPMiddleware(handler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      75 * time.Second,
@@ -191,6 +207,7 @@ func newServer(cfg config.Config, handler http.Handler) *http.Server {
 	}
 }
 
+// Listening to http
 func serveHTTP(ctx context.Context, server *http.Server, listener net.Listener, lockLost <-chan struct{}) error {
 	// Penghentian server menunggu request aktif selesai. Context request tetap hidup sampai selesai atau
 	// batas shutdown menutup koneksi.
