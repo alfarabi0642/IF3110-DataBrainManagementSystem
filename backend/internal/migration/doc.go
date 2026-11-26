@@ -1,7 +1,9 @@
-// Package migration mengelola draft, eksekusi transaksional, riwayat, dan recovery migration.
-// Service menerima principal tervalidasi dan target eksplisit; adapter HTTP menangani input dan response.
-// Runner memakai context caller, koneksi target dedicated, serta snapshot dari reservasi tersimpan.
-// markCommit mencatat fase sebelum COMMIT; finishExecution menyimpan evidence dan menjaga blokir unknown.
-// Startup wajib memperoleh platformdb.Open lalu RecoverInterrupted sebelum menerima operasi.
-// Saat shutdown, caller menguras operasi sebelum DB.Close; hilangnya DB.Lost membatalkan operasi aktif.
+// Package migration mengelola draft, persetujuan, penerimaan eksekusi, dan riwayat migrasi.
+// Service menerima principal tervalidasi serta ID target eksplisit. Worker memanggil
+// RevalidateOperation untuk memeriksa izin aktor dan keadaan target sebelum menjalankan SQL.
+//
+// Package httpapi menangani HTTP, sedangkan worker menjalankan SQL dan rekonsiliasi.
+// Keduanya memakai package ini. Package execstore menyimpan eksekusi dan memasukkan job,
+// head mengelola posisi migrasi dan finalisasi riwayat, journal mengelola lock dan bukti
+// commit pada target, sqlpolicy memvalidasi SQL, dan legacy menangani eksekusi M1.
 package migration

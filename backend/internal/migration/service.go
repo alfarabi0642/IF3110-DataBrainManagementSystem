@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/access"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/execstore"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/legacy"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
 	"github.com/google/uuid"
@@ -15,12 +17,12 @@ import (
 // Service mengotorisasi caller sebelum membaca atau mengubah data satu target.
 type Service struct {
 	store      *DraftStore
-	runner     *Runner
+	runner     *legacy.Runner
 	authorizer access.Authorizer
 }
 
-func NewService(store *DraftStore, runner *Runner, authorizer access.Authorizer) (*Service, error) {
-	if store == nil || store.pool == nil || runner == nil || runner.store == nil || runner.store.pool != store.pool || authorizer == nil {
+func NewService(store *DraftStore, runner *legacy.Runner, authorizer access.Authorizer) (*Service, error) {
+	if store == nil || store.pool == nil || runner == nil || runner.Store() == nil || runner.Store().Pool() != store.pool || authorizer == nil {
 		return nil, draftFailure(problem.InternalError)
 	}
 	return &Service{store: store, runner: runner, authorizer: authorizer}, nil
@@ -137,23 +139,23 @@ func (s *Service) draftAuthors(ctx context.Context, drafts []DraftSummary) error
 }
 
 type Review struct {
-	Input   ReserveInput
+	Input   legacy.ReserveInput
 	Draft   *Draft
-	Receipt *AttemptReceipt
+	Receipt *legacy.AttemptReceipt
 }
 
 // Review membaca receipt sebelum revision terkini; pembacaan ini tidak mereservasi attempt.
-func (s *Service) Review(ctx context.Context, p access.Principal, target, draft uuid.UUID, input *ReserveInput) (Review, error) {
+func (s *Service) Review(ctx context.Context, p access.Principal, target, draft uuid.UUID, input *legacy.ReserveInput) (Review, error) {
 	if _, err := s.authorizer.RequireDatabase(ctx, p, target, access.MigrationWrite); err != nil {
 		return Review{}, err
 	}
 	var result Review
 	if input != nil {
 		if input.ExpectedRevision < 1 || input.RequestKey == uuid.Nil {
-			return Review{}, attemptFailure(problem.InvalidRequest)
+			return Review{}, draftFailure(problem.InvalidRequest)
 		}
 		result.Input = *input
-		r, err := s.runner.replay(ctx, target, draft, p.UserID, *input)
+		r, err := s.runner.Replay(ctx, target, draft, p.UserID, *input)
 		if err != nil || r != nil {
 			result.Receipt = r
 			return result, err
@@ -164,16 +166,16 @@ func (s *Service) Review(ctx context.Context, p access.Principal, target, draft 
 		return Review{}, err
 	}
 	if input == nil {
-		result.Input = ReserveInput{d.Revision, uuid.New()}
+		result.Input = legacy.ReserveInput{ExpectedRevision: d.Revision, RequestKey: uuid.New()}
 	} else if input.ExpectedRevision != d.Revision {
-		return Review{}, attemptFailure(problem.RevisionConflict)
+		return Review{}, draftFailure(problem.RevisionConflict)
 	}
 	result.Draft = &d
 	return result, nil
 }
 
 // Execute mempertahankan key saat persistence gagal; lookup tidak mengulang SQL.
-func (s *Service) Execute(ctx context.Context, p access.Principal, target, draft uuid.UUID, input ReserveInput) (AttemptReceipt, error) {
+func (s *Service) Execute(ctx context.Context, p access.Principal, target, draft uuid.UUID, input legacy.ReserveInput) (legacy.AttemptReceipt, error) {
 	end := time.Now().Add(65 * time.Second)
 	if deadline, ok := ctx.Deadline(); ok && deadline.Before(end) {
 		end = deadline
@@ -186,35 +188,96 @@ func (s *Service) Execute(ctx context.Context, p access.Principal, target, draft
 	if errors.As(err, &failure) && (failure.Code == problem.SessionInvalid || failure.Code == problem.DatabaseNotFound || failure.Code == problem.DatabaseAccessDenied) {
 		return r, err
 	}
-	lookup, cancel := cleanupExecutionContext(end, 2*time.Second)
+	lookup, cancel := legacy.CleanupExecutionContext(end, 2*time.Second)
 	defer cancel()
-	if stored, lookupErr := s.runner.replay(lookup, target, draft, p.UserID, input); lookupErr == nil && stored != nil {
+	if stored, lookupErr := s.runner.Replay(lookup, target, draft, p.UserID, input); lookupErr == nil && stored != nil {
 		return *stored, nil
 	}
 	return r, err
 }
 
-func (s *Service) History(ctx context.Context, p access.Principal, target uuid.UUID, limit, offset int) ([]AttemptSummary, bool, error) {
+func (s *Service) History(ctx context.Context, p access.Principal, target uuid.UUID, limit, offset int) ([]legacy.AttemptSummary, bool, error) {
 	if _, err := s.authorizer.RequireDatabase(ctx, p, target, access.DatabaseView); err != nil {
 		return nil, false, err
 	}
-	return s.runner.store.List(ctx, target, limit, offset)
+	return s.runner.Store().List(ctx, target, limit, offset)
 }
 
-func (s *Service) Attempt(ctx context.Context, p access.Principal, target, attempt uuid.UUID) (*AttemptDetail, error) {
+func (s *Service) Attempt(ctx context.Context, p access.Principal, target, attempt uuid.UUID) (*legacy.AttemptDetail, error) {
 	if _, err := s.authorizer.RequireDatabase(ctx, p, target, access.DatabaseView); err != nil {
 		return nil, err
 	}
-	a, err := s.runner.store.Get(ctx, target, attempt)
+	a, err := s.runner.Store().Get(ctx, target, attempt)
 	if err == nil && a == nil {
-		err = attemptFailure(problem.AttemptNotFound)
+		err = draftFailure(problem.AttemptNotFound)
 	}
 	return a, err
 }
 
-func (s *Service) Receipt(ctx context.Context, p access.Principal, target, key uuid.UUID) (*AttemptReceipt, error) {
+func (s *Service) Receipt(ctx context.Context, p access.Principal, target, key uuid.UUID) (*legacy.AttemptReceipt, error) {
 	if _, err := s.authorizer.RequireDatabase(ctx, p, target, access.DatabaseView); err != nil {
 		return nil, err
 	}
-	return s.runner.store.Receipt(ctx, target, p.UserID, key)
+	return s.runner.Store().Receipt(ctx, target, p.UserID, key)
+}
+
+// Execution membaca proyeksi durable satu eksekusi setelah otorisasi target. Fungsi ini tidak
+// menjalankan SQL target atau memperbaiki state.
+func (s *Service) Execution(ctx context.Context, p access.Principal, target, execution uuid.UUID) (*execstore.ExecutionView, error) {
+	if target == uuid.Nil || execution == uuid.Nil {
+		return nil, draftFailure(problem.InvalidRequest)
+	}
+	if _, err := s.authorizer.RequireDatabase(ctx, p, target, access.DatabaseView); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	lease, err := platformdb.Acquire(ctx, s.store.pool)
+	if err != nil {
+		return nil, draftFailure(problem.PlatformUnavailable)
+	}
+	defer lease.Release()
+	view, err := execstore.LoadExecution(ctx, lease, target, execution)
+	if err != nil {
+		return nil, err
+	}
+	if view == nil {
+		return nil, draftFailure(problem.ExecutionNotFound)
+	}
+	return view, nil
+}
+
+// ExecutionByJob menyelesaikan job River ke target/eksekusi sebelum otorisasi. Job atau target yang
+// tidak dapat diakses memakai not-found terkonceal agar ID tidak menjadi oracle.
+func (s *Service) ExecutionByJob(ctx context.Context, p access.Principal, jobID int64) (*execstore.ExecutionView, error) {
+	if jobID < 1 {
+		return nil, draftFailure(problem.InvalidRequest)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	lease, err := platformdb.Acquire(ctx, s.store.pool)
+	if err != nil {
+		return nil, draftFailure(problem.PlatformUnavailable)
+	}
+	defer lease.Release()
+	var target, execution uuid.UUID
+	err = lease.QueryRow(ctx, `SELECT target_id,execution_id FROM databrain.execution_receipts
+	    WHERE job_id=$1`, jobID).Scan(&target, &execution)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, draftFailure(problem.DatabaseNotFound)
+	}
+	if err != nil {
+		return nil, draftFailure(problem.PlatformUnavailable)
+	}
+	if _, err := s.authorizer.RequireDatabase(ctx, p, target, access.DatabaseView); err != nil {
+		return nil, err
+	}
+	view, err := execstore.LoadExecution(ctx, lease, target, execution)
+	if err != nil {
+		return nil, err
+	}
+	if view == nil {
+		return nil, draftFailure(problem.PlatformUnavailable)
+	}
+	return view, nil
 }
