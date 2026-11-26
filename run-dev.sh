@@ -32,8 +32,8 @@ if [ "$database_mode" = docker ]; then
   export PLATFORM_DATABASE_PASSWORD="$DATABRAIN_RUNTIME_PASSWORD"
   export MIGRATOR_DATABASE_URL="postgres://databrain_migrator@127.0.0.1:$DATABRAIN_POSTGRES_PORT/databrain_dev?sslmode=disable"
   export MIGRATOR_DATABASE_PASSWORD="$DATABRAIN_MIGRATOR_PASSWORD"
-  # Kedua mode berbagi process lock; hentikan app Docker sebelum server host.
-  docker compose -f infra/compose.yaml stop app
+  # Kedua mode berbagi process lock; hentikan app/worker Docker sebelum server host.
+  docker compose -f infra/compose.yaml stop app worker
   docker compose -f infra/compose.yaml up -d --wait postgres
 fi
 cd "$ROOT_DIR/backend"
@@ -41,6 +41,7 @@ export CGO_ENABLED=0
 mkdir -p ../.tmp
 go build -o ../.tmp/manage ./cmd/manage
 go build -o ../.tmp/api ./cmd/api
+go build -o ../.tmp/worker ./cmd/worker
 ../.tmp/manage migrate up
 umask 077
 password_file=$(mktemp)
@@ -49,6 +50,9 @@ printf '%s' "${BOOTSTRAP_ADMIN_PASSWORD:-AdminPassword123!}" > "$password_file"
 ../.tmp/manage bootstrap-admin --username "${BOOTSTRAP_ADMIN_USERNAME:-admin}" \
   --display-name "${BOOTSTRAP_ADMIN_DISPLAY_NAME:-Administrator}" --password-file "$password_file"
 rm -f "$password_file"
-trap - EXIT HUP INT TERM
-echo "DataBrain: $APP_ORIGIN (admin: ${BOOTSTRAP_ADMIN_USERNAME:-admin})"
-exec ../.tmp/api
+export WORKER_ADDR="${WORKER_ADDR:-127.0.0.1:8081}"
+../.tmp/worker &
+worker_pid=$!
+trap 'kill "$worker_pid" 2>/dev/null || true; wait "$worker_pid" 2>/dev/null || true' EXIT HUP INT TERM
+echo "DataBrain: $APP_ORIGIN (admin: ${BOOTSTRAP_ADMIN_USERNAME:-admin}, worker: http://$WORKER_ADDR/healthz)"
+../.tmp/api

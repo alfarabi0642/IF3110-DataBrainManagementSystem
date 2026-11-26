@@ -65,8 +65,22 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 			return 409, p.Code, "This request key belongs to a different draft or revision."
 		case problem.DraftAlreadyExecuted:
 			return 409, p.Code, "This draft revision already succeeded. Save a new revision before another execution."
+		case problem.DraftFrozen:
+			return 409, p.Code, "This draft is frozen after submission or execution. Create a new draft to make changes."
+		case problem.ApprovalConfigurationIncomplete:
+			return 409, p.Code, "A required group has no eligible leader. Repair group leadership before submitting."
+		case problem.ReviewHeadUnavailable:
+			return 409, p.Code, "This target has committed migration history that is not yet represented by the review head. Reconcile it before submitting."
+		case problem.ReviewRequestNotFound:
+			return 404, p.Code, "Review request not found."
+		case problem.ReviewRequestStale:
+			return 409, p.Code, "This review request is stale. Submit a fresh request; prior votes are retained for audit."
+		case problem.ReviewRequestNotApproved:
+			return 409, p.Code, "This review request has not received every required group decision."
 		case problem.ExecutionCapacity:
 			return 409, p.Code, "Migration execution capacity is full. Check the receipt before trying again."
+		case problem.LegacyExecuteRetired:
+			return 410, p.Code, "Direct draft execution is retired. Submit the draft for group approval and execute the approved request."
 		case problem.SQLInvalid:
 			return 422, p.Code, "The saved SQL is empty or has invalid syntax."
 		case problem.SQLUnsupported:
@@ -97,7 +111,7 @@ func ErrorInfo(err error) (int, problem.Code, string) {
 			return 403, p.Code, "Open a new form and try again."
 		case problem.AdminRequired, problem.DatabaseAccessDenied:
 			return 403, p.Code, "Access denied."
-		case problem.DatabaseNotFound, problem.DraftNotFound, problem.AttemptNotFound,
+		case problem.DatabaseNotFound, problem.DraftNotFound, problem.AttemptNotFound, problem.ExecutionNotFound,
 			problem.UserNotFound, problem.GroupNotFound:
 			return 404, p.Code, "Resource not available."
 		case problem.PlatformUnavailable:

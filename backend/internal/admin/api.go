@@ -9,6 +9,7 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/auth"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
+	"github.com/google/uuid"
 )
 
 // RegisterAPI memakai service yang sama tanpa dependency layout atau renderer.
@@ -28,6 +29,7 @@ func (s *Service) RegisterAPI(mux *http.ServeMux, middleware *auth.Middleware) {
 	post("POST /api/admin/users/{user_id}/password", s.passwordAPI)
 	post("POST /api/admin/groups", s.createGroupAPI)
 	post("POST /api/admin/groups/{group_id}", s.editGroupAPI)
+	post("POST /api/admin/groups/{group_id}/leader", s.leaderAPI)
 	post("POST /api/admin/groups/{group_id}/members", s.memberAPI)
 	post("POST /api/admin/groups/{group_id}/members/{user_id}/remove", s.memberAPI)
 	post("POST /api/admin/groups/{group_id}/databases", s.grantAPI)
@@ -194,21 +196,58 @@ func (s *Service) passwordAPI(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) createGroupAPI(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name string `json:"name"`
+		Name     string `json:"name"`
+		LeaderID string `json:"leader_id"`
 	}
-	err := httpx.DecodeJSON(w, r, httpx.NormalBodyLimit, &in, []string{"name"}, nil)
-	if err != nil {
-		httpx.WriteJSONError(w, r, err)
-		return
+	err := httpx.DecodeJSON(w, r, httpx.NormalBodyLimit, &in, []string{"name"}, []string{"leader_id"})
+	var leader uuid.UUID
+	if err == nil && in.LeaderID != "" {
+		leader, err = parsePathID(in.LeaderID)
 	}
 	actor, _ := access.FromContext(r.Context())
-	id, err := s.CreateGroup(r.Context(), actor, CreateGroupInput{in.Name})
+	var id uuid.UUID
+	if err == nil {
+		id, err = s.CreateGroup(r.Context(), actor, CreateGroupInput{Name: in.Name, LeaderID: leader})
+	}
 	if err != nil {
 		httpx.WriteJSONError(w, r, err)
 		return
 	}
 	w.Header().Set("Location", "/api/admin/groups/"+id.String())
 	httpx.WriteJSON(w, r, 201, map[string]string{"id": id.String()}, nil)
+}
+
+func (s *Service) leaderAPI(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		UserID   string `json:"user_id"`
+		Revision string `json:"expected_revision"`
+	}
+	err := httpx.DecodeJSON(w, r, httpx.NormalBodyLimit, &in,
+		[]string{"user_id", "expected_revision"}, nil)
+	groupID, groupErr := pathID(r, "group_id")
+	userID, userErr := parsePathID(in.UserID)
+	var revision int64
+	if err == nil {
+		err = groupErr
+	}
+	if err == nil {
+		err = userErr
+	}
+	if err == nil {
+		revision, err = apiRevision(in.Revision)
+	}
+	actor, _ := access.FromContext(r.Context())
+	var group GroupItem
+	if err == nil {
+		group, err = s.AssignLeader(r.Context(), actor, groupID, userID, revision)
+	}
+	if err != nil {
+		httpx.WriteJSONError(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, r, 200, struct {
+		Group GroupItem `json:"group"`
+	}{group}, nil)
 }
 
 func (s *Service) editGroupAPI(w http.ResponseWriter, r *http.Request) {

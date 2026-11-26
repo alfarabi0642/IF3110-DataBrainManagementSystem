@@ -71,8 +71,7 @@ func TestV1Interoperability(t *testing.T) {
 		{"target", "databrain/target-secret/v1", "target:11111111-2222-4333-8444-555555555555:v1", s.SealTarget, s.OpenTarget},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			// Decode format publik memakai AES-GCM langsung agar tidak bergantung pada implementasi envelope
-			// helper.
+			// Decode format publik memakai AES-GCM langsung agar tidak bergantung pada implementasi envelope helper.
 			key, err := hkdf.Key(sha256.New, root, nil, tc.info, 32)
 			if err != nil {
 				t.Fatal("HKDF setup failed")

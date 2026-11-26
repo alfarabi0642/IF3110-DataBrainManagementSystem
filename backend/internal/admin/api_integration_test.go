@@ -71,6 +71,11 @@ func TestAdminAPI(t *testing.T) {
 	group := createdID(request("POST", "/api/admin/groups", `{"name":"API group"}`, 201))
 	request("POST", "/api/admin/groups", `{"name":"API group"}`, 409)
 	user := createdID(request("POST", "/api/admin/users", `{"username":"api_user","display_name":"API user","password":"Api-user-password","is_platform_admin":false}`, 201))
+	ledGroup := createdID(request("POST", "/api/admin/groups", fmt.Sprintf(`{"name":"API led group","leader_id":%q}`, user), 201))
+	ledDetail := request("GET", "/api/admin/groups/"+ledGroup, "", 200)
+	if !strings.Contains(string(ledDetail["data"]), `"leader_id":"`+user+`"`) || !strings.Contains(string(ledDetail["data"]), `"username":"api_user"`) {
+		t.Fatal("initial leader was not stored as an active member")
+	}
 	base := "/api/admin/users/" + user
 	request("GET", base, "", 200)
 	request("POST", base, `{"expected_revision":1,"display_name":"x","is_active":true,"is_platform_admin":false}`, 400)
@@ -93,11 +98,21 @@ func TestAdminAPI(t *testing.T) {
 	if !strings.Contains(string(detail["data"]), `"username":"api_user"`) {
 		t.Fatal("membership missing")
 	}
-	request("POST", groupPath, `{"expected_revision":"1","name":"API group","is_active":false}`, 200)
+	request("POST", groupPath+"/leader", `{}`, 400)
+	request("POST", groupPath+"/leader", `{"user_id":"not-a-uuid","expected_revision":"1"}`, 400)
+	leaderResult := request("POST", groupPath+"/leader", fmt.Sprintf(`{"user_id":%q,"expected_revision":"1"}`, user), 200)
+	if !strings.Contains(string(leaderResult["data"]), `"leader_id":"`+user+`"`) {
+		t.Fatal("leader assignment response missing leader")
+	}
+	request("POST", groupPath, `{"expected_revision":"2","name":"API group","is_active":false}`, 200)
 	request("POST", groupPath, `{"expected_revision":"1","name":"Stale","is_active":true}`, 409)
 	request("POST", groupPath+"/databases/"+target+"/remove", `{}`, 200)
 	request("POST", groupPath+"/databases", grantBody, 422)
 	request("POST", groupPath+"/members/"+user+"/remove", `{}`, 200)
+	afterRemoval := request("GET", groupPath, "", 200)
+	if !strings.Contains(string(afterRemoval["data"]), `"leader_id":null`) {
+		t.Fatal("removing a leader did not clear the assignment")
+	}
 	request("POST", groupPath+"/members", fmt.Sprintf(`{"user_id":%q}`, user), 422)
 	request("POST", "/api/admin/users/"+actor.UserID.String(), `{"expected_revision":"1","display_name":"Fixture admin","is_active":true,"is_platform_admin":false}`, 409)
 	for _, header := range []string{"Origin", "X-CSRF-Token"} {
@@ -119,6 +134,7 @@ func TestAdminAPI(t *testing.T) {
 	}
 	request("GET", "/api/admin/users", "", 403)
 	request("POST", "/api/admin/groups", `{"name":"Denied"}`, 403)
+	request("POST", groupPath+"/leader", fmt.Sprintf(`{"user_id":%q,"expected_revision":"4"}`, user), 403)
 	if _, err := s.pool.Exec(t.Context(), `UPDATE databrain.sessions SET user_id=$2,security_version=(SELECT security_version FROM databrain.users WHERE id=$2) WHERE id=$1`, state.ID, actor.UserID); err != nil {
 		t.Fatal(err)
 	}

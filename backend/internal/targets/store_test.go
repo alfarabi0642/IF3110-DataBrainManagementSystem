@@ -581,6 +581,34 @@ func TestTargetStoreAndConnections(t *testing.T) {
 		}
 	})
 
+	t.Run("active executions block edits", func(t *testing.T) {
+		current, err := p.Get(ctx, second.ID)
+		if err != nil {
+			t.Fatal("cannot read independent target")
+		}
+		execution := uuid.New()
+		if _, err := p.pool.Exec(ctx, `INSERT INTO databrain.migration_executions
+		    (id,target_id,actor_id,request_id,definition_id,revision,target_config_revision,direction,mode,plan_hash,sql_snapshot)
+		    VALUES ($1,$2,$3,$4,$5,1,$6,'apply','normal',repeat('0',64),'SELECT 1')`,
+			execution, second.ID, f.actor, uuid.New(), uuid.New(), current.ConfigRevision); err != nil {
+			t.Fatal("cannot insert active execution fixture")
+		}
+		if _, err := p.pool.Exec(ctx, "UPDATE databrain.migration_streams SET active_execution_id=$2 WHERE target_id=$1", second.ID, execution); err != nil {
+			t.Fatal("cannot link active execution fixture")
+		}
+		edit := editOf(current)
+		edit.Name = "Must not change"
+		_, err = p.Edit(ctx, second.ID, edit)
+		checkCode(t, err, problem.TargetBusy)
+		unchanged, err := p.Get(ctx, second.ID)
+		if err != nil || unchanged.ConfigRevision != current.ConfigRevision || unchanged.Name != current.Name {
+			t.Fatal("active execution did not protect target configuration")
+		}
+		if _, err := p.pool.Exec(ctx, "UPDATE databrain.migration_streams SET active_execution_id=NULL WHERE target_id=$1", second.ID); err != nil {
+			t.Fatal("cannot clear active execution fixture")
+		}
+	})
+
 	// Tidak boleh ada koneksi test tertinggal pada kedua target, termasuk dari probe gagal.
 	waitSlots(t, p.explorer, 0)
 	waitSlots(t, p.migration, 0)

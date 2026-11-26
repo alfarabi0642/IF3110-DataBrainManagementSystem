@@ -17,6 +17,7 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/config"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/secret"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/telemetry"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -84,6 +85,7 @@ func NewProvider(pool *pgxpool.Pool, secrets *secret.Secrets, settings config.Ta
 	if err != nil {
 		return nil, failure(problem.ValidationFailed)
 	}
+	base.Tracer = telemetry.QueryTracer{}
 	p.base = base
 	return p, nil
 }
@@ -92,6 +94,7 @@ func NewProvider(pool *pgxpool.Pool, secrets *secret.Secrets, settings config.Ta
 // credential, fallback TLS, dan role.
 func (p *Provider) connectionConfig(in CreateInput, application string, readOnly bool) *pgx.ConnConfig {
 	cfg := p.base.Copy()
+	cfg.Tracer = telemetry.QueryTracer{}
 	cfg.Host, cfg.Port, cfg.Database, cfg.User, cfg.Password = in.Host, uint16(in.Port), in.DatabaseName, in.Username, in.Password
 	cfg.Fallbacks, cfg.TLSConfig, cfg.ValidateConnect = nil, nil, nil
 	cfg.SSLNegotiation = "postgres"

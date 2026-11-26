@@ -1,4 +1,4 @@
-package migration
+package migration_test
 
 import (
 	"context"
@@ -16,6 +16,8 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/auth"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/explorer"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
+	. "github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/httpapi"
 )
 
 func TestBrowserSPA(t *testing.T) {
@@ -34,8 +36,8 @@ func TestBrowserSPA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runnerSQL(t, f.store.pool, `UPDATE databrain.users SET password_hash=$2,is_platform_admin=true WHERE id=$1`, f.actor, hash)
-	runnerSQL(t, f.store.pool, `UPDATE databrain.users SET password_hash=$2 WHERE id=$1`, f.viewer.UserID, hash)
+	runnerSQL(t, f.store.Pool(), `UPDATE databrain.users SET password_hash=$2,is_platform_admin=true WHERE id=$1`, f.actor, hash)
+	runnerSQL(t, f.store.Pool(), `UPDATE databrain.users SET password_hash=$2 WHERE id=$1`, f.viewer.UserID, hash)
 	runnerSQL(t, f.target, `CREATE TABLE public.browser_cells(id int PRIMARY KEY,value text,precise numeric); INSERT INTO public.browser_cells VALUES(1,NULL,9007199254740993),(2,'',1),(3,'null',2); GRANT SELECT ON public.browser_cells TO databrain_target`)
 	middleware, err := auth.NewMiddleware(web.service)
 	if err != nil {
@@ -43,20 +45,20 @@ func TestBrowserSPA(t *testing.T) {
 	}
 	apiMux := http.NewServeMux()
 	middleware.RegisterSessionAPI(apiMux)
-	provider := f.runner.provider
+	provider := f.runner.Provider()
 	provider.RegisterListAPI(apiMux, middleware)
 	provider.RegisterAdminAPI(apiMux, middleware, f.guard)
-	accounts, err := admin.NewService(f.store.pool, web.service)
+	accounts, err := admin.NewService(f.store.Pool(), web.service)
 	if err != nil {
 		t.Fatal(err)
 	}
 	accounts.RegisterAPI(apiMux, middleware)
-	explorer.New(provider).RegisterAPI(apiMux, middleware, f.store.pool, f.guard)
+	explorer.New(provider).RegisterAPI(apiMux, middleware, f.store.Pool(), f.guard)
 	migrations, err := NewService(f.store, f.runner, f.guard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler, err := NewAPIHandler(migrations)
+	handler, err := httpapi.NewAPIHandler(migrations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +88,7 @@ func TestBrowserSPA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runnerSQL(t, f.store.pool, `UPDATE databrain.sessions SET created_at=now()-interval '1 hour',absolute_expires_at=now()-interval '1 minute' WHERE id=$1`, expired.ID)
+	runnerSQL(t, f.store.Pool(), `UPDATE databrain.sessions SET created_at=now()-interval '1 hour',absolute_expires_at=now()-interval '1 minute' WHERE id=$1`, expired.ID)
 	script, err := filepath.Abs("../../../frontend/e2e/browser.mjs")
 	if err != nil {
 		t.Fatal(err)

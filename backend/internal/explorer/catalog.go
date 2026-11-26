@@ -17,7 +17,7 @@ import (
 const (
 	maxDefinitionBytes = 64 << 10
 	maxMetadataBytes   = 4 << 20
-	userSchemaSQL      = `n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'`
+	userSchemaSQL      = `n.nspname !~ '^pg_' AND n.nspname NOT IN ('information_schema','databrain_runtime')`
 )
 
 type Table struct {
@@ -134,7 +134,7 @@ func validName(name string) bool {
 }
 
 func userSchema(name string) bool {
-	return name != "information_schema" && !strings.HasPrefix(name, "pg_")
+	return name != "information_schema" && name != "databrain_runtime" && !strings.HasPrefix(name, "pg_")
 }
 
 func readCatalog(ctx context.Context, tx pgx.Tx, schema, table string) (Catalog, error) {

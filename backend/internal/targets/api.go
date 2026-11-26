@@ -15,11 +15,18 @@ type activeAttemptDTO struct {
 	State   string `json:"state"`
 }
 
+type activeExecutionDTO struct {
+	ID      string `json:"id"`
+	Phase   string `json:"phase"`
+	Outcome string `json:"outcome,omitempty"`
+}
+
 type databaseDTO struct {
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Access        access.Level      `json:"access"`
-	ActiveAttempt *activeAttemptDTO `json:"active_attempt"`
+	ID              string              `json:"id"`
+	Name            string              `json:"name"`
+	Access          access.Level        `json:"access"`
+	ActiveAttempt   *activeAttemptDTO   `json:"active_attempt"`
+	ActiveExecution *activeExecutionDTO `json:"active_execution"`
 }
 
 // RegisterListAPI hanya memproyeksikan daftar workspace, tanpa renderer atau credential target.
@@ -49,6 +56,10 @@ func (p *Provider) databasesAPI(w http.ResponseWriter, r *http.Request) {
 		if item.ActiveAttemptID != nil {
 			database.ActiveAttempt = &activeAttemptDTO{ID: item.ActiveAttemptID.String(),
 				Version: item.ActiveAttemptVersion, State: item.ActiveAttemptState}
+		}
+		if item.ActiveExecutionID != nil {
+			database.ActiveExecution = &activeExecutionDTO{ID: item.ActiveExecutionID.String(),
+				Phase: item.ActiveExecutionPhase, Outcome: item.ActiveExecutionOutcome}
 		}
 		data = append(data, database)
 	}

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/legacy"
 	"github.com/google/uuid"
 )
 
@@ -31,7 +31,7 @@ func TestResolveCommandInput(t *testing.T) {
 	if got, err := readEvidenceFile(path); err != nil || got != want {
 		t.Fatal("evidence was normalized or not read")
 	}
-	for _, data := range []string{"", " \r\n", string([]byte{0xff}), "NUL\x00", strings.Repeat("x", migration.MaxResolutionBytes+1)} {
+	for _, data := range []string{"", " \r\n", string([]byte{0xff}), "NUL\x00", strings.Repeat("x", legacy.MaxResolutionBytes+1)} {
 		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
 			t.Fatal(err)
 		}

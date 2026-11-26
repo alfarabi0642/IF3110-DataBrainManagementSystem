@@ -20,6 +20,7 @@ COPY backend/ .
 
 RUN go build -trimpath -ldflags="-s -w" -o /bin/api ./cmd/api
 RUN go build -trimpath -ldflags="-s -w" -o /bin/manage ./cmd/manage
+RUN go build -trimpath -ldflags="-s -w" -o /bin/worker ./cmd/worker
 
 FROM alpine:3.21
 
@@ -29,6 +30,7 @@ WORKDIR /app
 
 COPY --from=builder /bin/api /bin/api
 COPY --from=builder /bin/manage /bin/manage
+COPY --from=builder /bin/worker /bin/worker
 COPY --from=builder /app/web/static /app/web/static
 COPY --from=frontend /frontend/dist /app/frontend
 COPY backend/entrypoint.sh /app/entrypoint.sh

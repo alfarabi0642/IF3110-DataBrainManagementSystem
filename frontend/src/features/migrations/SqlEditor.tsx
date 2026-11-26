@@ -1,6 +1,6 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
 
-export function SqlEditor({ value, original, onChange, disabled }: { value: string; original: string; onChange: (value: string) => void; disabled: boolean }) {
+export function SqlEditor({ value, original, onChange, disabled, id = 'sql', name = 'sql', filename = 'query.sql', required = true }: { value: string; original: string; onChange: (value: string) => void; disabled: boolean; id?: string; name?: string; filename?: string; required?: boolean }) {
   const area = useRef<HTMLTextAreaElement>(null);
   const gutter = useRef<HTMLDivElement>(null);
   const escaped = useRef(false);
@@ -32,9 +32,9 @@ export function SqlEditor({ value, original, onChange, disabled }: { value: stri
   const modifier = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
   return <>
     <div className={`editor${value !== original ? ' is-dirty' : ''}`}>
-      <div className="editor-bar" aria-hidden="true"><i /><i /><i /><b>query.sql</b><span className="dirty">Unsaved</span></div>
+      <div className="editor-bar" aria-hidden="true"><i /><i /><i /><b>{filename}</b><span className="dirty">Unsaved</span></div>
       <div ref={gutter} className="editor-gutter" aria-hidden="true">{Array.from({ length: lines }, (_, index) => `${index + 1}\n`).join('')}</div>
-      <textarea ref={area} id="sql" name="sql" spellCheck={false} required value={value} disabled={disabled}
+      <textarea ref={area} id={id} name={name} spellCheck={false} required={required} value={value} disabled={disabled}
         onChange={(event) => { onChange(event.target.value); update(); }} onKeyDown={keydown} onKeyUp={update} onClick={update} onSelect={update} onScroll={update} />
     </div>
     <div className="editor-status" aria-hidden="true">

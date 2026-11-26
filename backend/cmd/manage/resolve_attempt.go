@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/config"
-	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/legacy"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
 	"github.com/google/uuid"
 )
@@ -36,8 +36,8 @@ func runResolveAttempt(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	input := migration.ResolutionInput{Outcome: *outcome, Operator: *operator, Evidence: evidence}
-	if err := migration.ValidateResolution(input); err != nil {
+	input := legacy.ResolutionInput{Outcome: *outcome, Operator: *operator, Evidence: evidence}
+	if err := legacy.ValidateResolution(input); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -61,7 +61,7 @@ func runResolveAttempt(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	resolveErr := migration.ResolveAttempt(ctx, db, id, input)
+	resolveErr := legacy.ResolveAttempt(ctx, db, id, input)
 	cleanup, stop := context.WithTimeout(context.Background(), 3*time.Second)
 	closeErr := db.Close(cleanup)
 	stop()
@@ -83,11 +83,11 @@ func readEvidenceFile(path string) (string, error) {
 		return "", errors.New("cannot read operator evidence file")
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, migration.MaxResolutionBytes+1))
+	data, err := io.ReadAll(io.LimitReader(file, legacy.MaxResolutionBytes+1))
 	if err != nil {
 		return "", errors.New("cannot read operator evidence file")
 	}
-	if err := migration.ValidateResolution(migration.ResolutionInput{Outcome: "failed", Operator: "operator", Evidence: string(data)}); err != nil {
+	if err := legacy.ValidateResolution(legacy.ResolutionInput{Outcome: "failed", Operator: "operator", Evidence: string(data)}); err != nil {
 		return "", err
 	}
 	return string(data), nil

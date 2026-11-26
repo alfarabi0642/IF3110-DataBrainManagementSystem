@@ -1,10 +1,10 @@
 # DataBrain Management System
 
-Aplikasi Go dan React SPA untuk mengatur akses PostgreSQL, melihat schema/data, dan menjalankan migration transaksional dengan riwayat permanen. Login, administrasi, explorer, draft, review, execute dan history memakai JSON API pada origin yang sama.
+DataBrain adalah aplikasi Go dan React untuk mengelola akses PostgreSQL, menjelajahi skema dan data, serta mengajukan dan menjalankan migrasi SQL dengan riwayat commit. Antarmuka web dan API JSON dilayani dari origin yang sama.
 
 ## Menjalankan aplikasi
 
-Pilih satu mode di [panduan development](backend/dev/README.md): **full Docker** atau **Go di host + PostgreSQL Docker**. Jangan menjalankan kedua server pada platform DB yang sama. PostgreSQL yang didukung: 17 dan 18; fixture memakai 17.11.
+Pilih mode **full Docker** atau **Go di host dengan PostgreSQL di Docker** sesuai [panduan development](backend/dev/README.md). Jalankan satu instance API per database platform. PostgreSQL 17 dan 18 didukung. Fixture Docker memakai PostgreSQL 17.11.
 
 Untuk mencoba full Docker dari root repository:
 
@@ -12,11 +12,11 @@ Untuk mencoba full Docker dari root repository:
 docker compose -f infra/compose.yaml up -d --build --wait
 ```
 
-Buka [localhost:8080](http://localhost:8080). Akun development awal adalah `admin`, password `AdminPassword123!`. Nilai contoh ini hanya untuk fixture lokal. Runner hanya menampilkan URL dan username. `APP_SECRET_KEY` harus tetap sama saat restart agar credential target dan token session tetap dapat dibaca.
+Buka [localhost:8080](http://localhost:8080). Masuk dengan username `admin` dan password `AdminPassword123!`. Kredensial ini untuk development lokal. Pertahankan nilai `APP_SECRET_KEY` saat restart agar aplikasi tetap bisa membaca kredensial target dan token sesi yang tersimpan.
 
 ## Pengujian
 
-Frontend dan browser suite memerlukan Node.js 22.12+ dan npm. Dari `frontend/`:
+Untuk memeriksa dan membangun frontend, gunakan Node.js 22.12+ dan npm. Jalankan perintah berikut dari `frontend/`.
 
 ```sh
 npm ci
@@ -25,13 +25,13 @@ npm run test:run
 npm run build
 ```
 
-Go memerlukan build `frontend/dist` saat startup; semua browser route aplikasi melayani SPA, termasuk direct URL dan refresh. `/api` tetap JSON, dan asset yang tidak ditemukan mengembalikan error tanpa HTML aplikasi. Image Docker membangun frontend dan Go bersama dari root repository. Build output dan `node_modules` tidak disimpan di Git.
+Saat dijalankan dari host, API memerlukan aset frontend di `frontend/dist`. Image Docker sudah menyertakan aset tersebut. Rute halaman mendukung akses langsung dan refresh, sedangkan `/api` mengembalikan JSON.
 
-`npm run test:e2e` memerlukan Chrome dan PostgreSQL disposable dengan identitas fixture yang diverifikasi; setup dan command lengkap ada pada panduan development. Perintah ini gagal bila konfigurasi fixture tidak tersedia. Screenshot dan hasil browser disimpan lokal di `.tmp/e2e`, bukan di Git.
+`npm run test:e2e` memerlukan Chrome, hasil build frontend, dan [fixture PostgreSQL lokal yang terverifikasi](backend/dev/README.md#menjalankan-tes). Screenshot dan hasil tes browser disimpan di `.tmp/e2e`.
 
 Untuk development dengan Vite, jalankan backend dengan `APP_ORIGIN=http://127.0.0.1:5173`, lalu `npm run dev` dari `frontend/` dan buka origin tersebut. Runner `run-dev.ps1`/`run-dev.sh` mempertahankan override `APP_ORIGIN` dari environment; default tanpa override tetap `http://localhost:8080`. Proxy meneruskan `/api`, `/static` dan `/healthz` ke `http://127.0.0.1:8080`; atur `API_PROXY_TARGET` bila alamat backend berbeda. Proxy mempertahankan Origin browser; pemeriksaan session/CSRF tetap aktif. Jangan memakai origin backend untuk login ketika konfigurasi Origin menunjuk Vite.
 
-API meliputi `/api/session`, `/api/login`, `/api/logout`, `/api/admin/{users,groups,databases}`, `/api/databases` dan resource target `/api/databases/{id}/{explorer,drafts,history,attempts,receipts}`. Success memakai `{data,request_id}` (list menambah `page`); error memakai `{error:{code,message},request_id}` dengan HTTP status sebenarnya. API tidak melakukan redirect login. Bootstrap memberi state `anonymous`, `authenticated` atau `reauth_required`, identitas minimum, `csrf_token` dan `absolute_expires_at`; session tetap cookie HttpOnly.
+API meliputi `/api/session`, `/api/login`, `/api/logout`, `/api/admin/{users,groups,databases}`, `/api/databases` dan resource target `/api/databases/{id}/{explorer,drafts,requests,history,activity,attempts,receipts,executions}`. Success memakai `{data,request_id}` (list menambah `page`); error memakai `{error:{code,message},request_id}` dengan HTTP status sebenarnya. API tidak melakukan redirect login. Bootstrap memberi state `anonymous`, `authenticated` atau `reauth_required`, identitas minimum, `csrf_token` dan `absolute_expires_at`; session tetap cookie HttpOnly.
 
 Login menerima JSON `{username,password}`, logout menerima `{}`. Semua mutasi memerlukan tepat satu header `X-CSRF-Token` dari bootstrap dan Origin yang sama dengan `APP_ORIGIN`. Login gagal memakai 401 `INVALID_CREDENTIALS`, rate limit 429 `LOGIN_RATE_LIMITED` dengan `Retry-After`, session invalid 401 `SESSION_INVALID`, dan reauth 401 `REAUTH_REQUIRED` pada API terlindungi. Client membaca ulang bootstrap setelah mutasi, membersihkan protected cache saat logout/pergantian identitas atau family, dan tidak mengulang mutasi otomatis saat session/CSRF kedaluwarsa. Token CSRF hanya disimpan dalam memory browser.
 
@@ -42,30 +42,65 @@ go test -count=1 ./...
 go vet ./...
 ```
 
-Tanpa `DATABRAIN_TEST_ADMIN_URL`, integration test PostgreSQL dilewati secara eksplisit. Untuk seluruh suite dengan PostgreSQL nyata, jalankan dari root (PowerShell, Bash, dan Docker Compose):
+Tes integrasi PostgreSQL dilewati jika `DATABRAIN_TEST_ADMIN_URL` belum diatur. Untuk menjalankan suite backend dengan PostgreSQL terisolasi, jalankan perintah berikut dari root repository.
 
 ```sh
 docker compose -p databrain-tests -f infra/test.compose.yaml run --rm tests
 ```
 
-Perintah ini menjalankan `go test -json -p 1 -count=1 ./...` lalu `go vet ./...`. Fixture terpisah, tanpa port host, tetap memeriksa role, database, data directory cluster, nama database acak, dan ownership sebelum cleanup. Lihat panduan development untuk mengulang dan membersihkan fixture test.
+Runner menjalankan `go test -json -p 1 -count=1 ./...` dan `go vet ./...` di lingkungan tes yang terpisah dari database aplikasi.
 
-## Kebijakan session
+## Contoh
 
-Session disimpan di server; browser menerima identifier opaque lewat cookie. Session anonymous berumur 10 menit. Setelah login, idle timeout adalah 30 menit dan umur maksimum 8 jam. Aktivitas memperbarui idle, tetapi tidak memperpanjang batas maksimum. Setelah habis, pengguna harus login kembali.
+Untuk mencoba satu migrasi di database demo lokal, masuk dengan username `admin` dan password `AdminPassword123!`.
+
+1. Di **Admin**, buat dua akun pengguna dan satu grup. Masukkan kedua akun ke grup, lalu jadikan salah satunya leader. Akun lainnya akan menjadi pengaju migrasi.
+2. Daftarkan koneksi ke `school_demo` dengan pengaturan di bawah. Beri grup akses **View and edit** (`view_edit`) ke koneksi itu.
+3. Masuk sebagai pengaju, buka **Drafts** pada koneksi tersebut, lalu buat draft dengan SQL `up` dan `down` di bawah. Simpan dan ajukan review.
+4. Masuk sebagai leader, buka **Requests**, lalu setujui permintaan. Pada target dengan beberapa grup, setiap grup aktif yang punya akses perlu memberikan persetujuan melalui leader-nya.
+5. Masuk kembali sebagai pengaju. Buka permintaan yang disetujui dan klik **Queue approved execution**. Pantau status di **Execution**. Setelah berhasil, lihat catatan commit di **History** dan tabel baru di **Explorer**.
+
+| Pengaturan koneksi | Full Docker | Go di host |
+|---|---|---|
+| Host | `postgres` | `127.0.0.1` |
+| Port | `5432` | `55432` |
+| Database | `school_demo` | `school_demo` |
+| Username | `databrain_target` | `databrain_target` |
+| Password lokal default | `targetpassword` | `targetpassword` |
+| SSL mode | `disable` | `disable` |
+
+Jika konfigurasi development diubah, gunakan port dan password target yang sesuai.
+
+**SQL up**
+
+```sql
+CREATE TABLE public.contoh_migrasi (id bigint PRIMARY KEY);
+```
+
+**SQL down**
+
+```sql
+DROP TABLE public.contoh_migrasi;
+```
+
+## Kebijakan Session
+
+Server menyimpan sesi dan memberi browser ID sesi melalui cookie. Sesi anonim berlaku selama 10 menit. Setelah login, sesi berakhir setelah 30 menit tanpa aktivitas atau setelah mencapai umur maksimum 8 jam. Aktivitas memperbarui batas waktu tanpa aktivitas. Pengguna harus login kembali setelah sesi berakhir.
 
 Identifier dirotasi setiap 15 menit. Identifier lama menjadi alias selama 120 detik, paling lama sampai batas maksimum session. Request paralel dengan alias yang masih valid menerima identifier terkini. Rotasi tidak memperpanjang absolute expiration.
 
 Login mencabut family anonymous atau family yang memerlukan reauthentication, kemudian membuat family authenticated baru dalam transaksi yang sama. Token anonymous lama langsung tidak berlaku dan tidak memperoleh hak authenticated.
 
-Peningkatan privilege (misalnya promosi admin, penambahan membership/grant, atau reaktivasi akses) merotasi family yang masih hidup dan mewajibkan verifikasi password sebelum fitur terlindungi dapat dipakai lagi. Deadline lama dipertahankan selama rotasi; login ulang yang berhasil membuat family baru. Penurunan/pencabutan akses dan reset password mencabut seluruh family pengguna terkait serta menaikkan security version. Perubahan nama dan pengiriman nilai identik tidak mengubah session. Perubahan tipe akun yang tetap nonaktif hanya menyimpan data akun.
+Peningkatan privilege (misalnya promosi admin, penambahan membership/grant, atau reaktivasi akses) merotasi family yang masih hidup dan mewajibkan verifikasi password sebelum fitur terlindungi dapat dipakai lagi. Batas waktu lama dipertahankan saat rotasi. Login ulang yang berhasil membuat family baru. Penurunan/pencabutan akses dan reset password mencabut seluruh family pengguna terkait serta menaikkan security version. Perubahan nama dan pengiriman nilai identik tidak mengubah session. Perubahan tipe akun yang tetap nonaktif hanya menyimpan data akun.
 
-Cookie development/test bernama `databrain_sid`; production memakai `__Host-databrain_sid`. Keduanya `HttpOnly`, `SameSite=Lax`, `Path=/`, tanpa Domain. HTTPS memberi flag `Secure`; production mewajibkan HTTPS. HTTP hanya diterima pada origin loopback development/test. Logout mencabut family beserta semua alias di backend sebelum cookie dihapus. Request yang mengubah state memerlukan pemeriksaan CSRF dan Origin.
+Cookie di development dan test bernama `databrain_sid`. Production memakai `__Host-databrain_sid`. Keduanya `HttpOnly`, `SameSite=Lax`, `Path=/`, tanpa Domain. Cookie memakai flag `Secure` pada koneksi HTTPS. Production mewajibkan HTTPS. HTTP hanya diterima pada origin loopback development/test. Logout mencabut family beserta semua alias di backend sebelum cookie dihapus. Request yang mengubah state memerlukan pemeriksaan CSRF dan Origin.
 
 ## Aturan akses
 
-Akses database berasal dari membership user pada **group aktif**, grant group pada target, dan **target aktif**. Tanpa grant efektif, akses ditolak. Jika beberapa group mengakses target yang sama, tingkat paling permisif berlaku: satu `view_edit` cukup untuk menjadi editor; bila seluruh grant hanya `view_only`, pengguna menjadi viewer. Contoh: group Pembaca memberi View Only dan Pengembang memberi View + Edit pada database A; anggota keduanya mendapat View + Edit pada A. Grant pada database lain dihitung terpisah.
+Akses database berasal dari keanggotaan pengguna di **grup aktif** yang memiliki grant pada **target aktif**. Jika pengguna memperoleh beberapa grant pada target yang sama, tingkat akses tertinggi berlaku. Satu grant `view_edit` memberi hak editor. Jika semua grant hanya `view_only`, pengguna mendapat hak viewer. Akses dihitung terpisah untuk setiap database.
 
-Viewer dapat membaca schema, data, history, dan detail migration. Editor juga dapat membuat, memperbarui, serta menjalankan draft. Platform admin mengelola user, group, koneksi, dan grant; status admin **tidak otomatis memberi akses database**. Admin tetap memerlukan membership/grant yang sama untuk membaca atau mengubah target. Semua tindakan diperiksa di backend.
+Viewer dapat membaca schema, data, history, dan detail migration. Editor dapat membuat, memperbarui, dan mengajukan draft untuk review. Pengaju dapat memasukkan operasi ke antrean setelah semua persetujuan wajib tercatat. Platform admin mengelola pengguna, grup, koneksi, dan grant. Untuk mengakses database target, admin tetap membutuhkan grant yang efektif. Semua tindakan diperiksa di backend.
 
-Migration menjalankan subset SQL PostgreSQL yang diterima policy aplikasi: CREATE/ALTER/DROP TABLE, CREATE/DROP SCHEMA, sebagian INDEX, dan INSERT/UPDATE/DELETE. Transaction control, fungsi/prosedur, top-level SELECT, dan beberapa varian DDL ditolak sebelum eksekusi. Draft boleh menyimpan SQL yang belum valid. Riwayat dan receipt membedakan sukses, gagal, dan hasil `unknown`; jangan mengulang SQL saat hasil COMMIT belum pasti. Server dibatasi satu instance per platform DB melalui process lock. Recovery operator dilakukan dalam maintenance setelah server dihentikan.
+Aplikasi menerima subset SQL PostgreSQL, termasuk `CREATE`, `ALTER`, dan `DROP TABLE`, `CREATE` dan `DROP SCHEMA`, sebagian operasi indeks, serta `INSERT`, `UPDATE`, dan `DELETE`. Kontrol transaksi, fungsi atau prosedur, dan `SELECT` sebagai perintah utama ditolak sebelum eksekusi. Draft dapat disimpan sebelum SQL siap diajukan.
+
+Lihat status di **Execution** dan hasil commit di **History**. Jika hasil `COMMIT` belum pasti, tunggu hasil rekonsiliasi sebelum menjalankan ulang SQL. Operator menggunakan `manage resolve-attempt` untuk attempt lama (M1) setelah API dihentikan. Untuk eksekusi asinkron (M2), `manage reconcile-execution --execution <UUID>` membaca bukti dari jurnal database target.

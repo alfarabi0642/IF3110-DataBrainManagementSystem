@@ -1,4 +1,4 @@
-package migration
+package migration_test
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/auth"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
+	. "github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/httpapi"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/secret"
 	"github.com/google/uuid"
 )
@@ -33,7 +35,7 @@ func newWorkflowFixture(t *testing.T, origin string) (runnerFixture, draftHTTPFi
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := auth.NewService(f.store.pool, secrets, auth.Policy{AppEnv: "test", AppOrigin: origin}, nil)
+	service, err := auth.NewService(f.store.Pool(), secrets, auth.Policy{AppEnv: "test", AppOrigin: origin}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +47,7 @@ func newWorkflowFixture(t *testing.T, origin string) (runnerFixture, draftHTTPFi
 	if err != nil {
 		t.Fatal(err)
 	}
-	api, err := NewAPIHandler(domain)
+	api, err := httpapi.NewAPIHandler(domain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +59,7 @@ func newWorkflowFixture(t *testing.T, origin string) (runnerFixture, draftHTTPFi
 			t.Fatal("cannot initialize HTTP workflow session")
 		}
 		if user != uuid.Nil {
-			runnerSQL(t, f.store.pool, `UPDATE databrain.sessions SET kind='authenticated',user_id=$2,security_version=1 WHERE id=$1`, state.ID, user)
+			runnerSQL(t, f.store.Pool(), `UPDATE databrain.sessions SET kind='authenticated',user_id=$2,security_version=1 WHERE id=$1`, state.ID, user)
 		}
 		return draftSession{state.ID, token, state.CSRF}
 	}

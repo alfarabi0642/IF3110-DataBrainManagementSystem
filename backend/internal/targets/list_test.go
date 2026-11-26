@@ -112,6 +112,16 @@ func TestDatabaseLists(t *testing.T) {
 	if _, err := p.pool.Exec(ctx, "UPDATE databrain.migration_streams SET active_attempt_id=$2,next_version=2 WHERE target_id=$1", first.ID, attempt); err != nil {
 		t.Fatal("cannot link active attempt fixture")
 	}
+	execution := uuid.New()
+	if _, err := p.pool.Exec(ctx, `INSERT INTO databrain.migration_executions
+	    (id,target_id,actor_id,request_id,definition_id,revision,target_config_revision,direction,mode,plan_hash,sql_snapshot)
+	    VALUES ($1,$2,$3,$4,$5,1,$6,'apply','normal',repeat('0',64),'SELECT 1')`,
+		execution, second.ID, f.actor, uuid.New(), uuid.New(), second.ConfigRevision); err != nil {
+		t.Fatal("cannot insert active execution fixture")
+	}
+	if _, err := p.pool.Exec(ctx, "UPDATE databrain.migration_streams SET active_execution_id=$2 WHERE target_id=$1", second.ID, execution); err != nil {
+		t.Fatal("cannot link active execution fixture")
+	}
 
 	t.Run("effective grants and safe projection", func(t *testing.T) {
 		items, more, err := p.ListForUser(ctx, f.actor, 50, 0)
@@ -126,9 +136,15 @@ func TestDatabaseLists(t *testing.T) {
 				if item.EffectiveAccess != access.ViewEdit || item.ActiveAttemptID == nil || *item.ActiveAttemptID != attempt || item.ActiveAttemptState != "reserved" || item.ActiveAttemptVersion != "1" {
 					t.Fatal("highest active grant or active attempt is wrong")
 				}
+				if item.ActiveExecutionID != nil || item.ActiveExecutionPhase != "" || item.ActiveExecutionOutcome != "" {
+					t.Fatal("execution leaked to the legacy attempt target")
+				}
 			} else if item.ID == second.ID {
 				if item.EffectiveAccess != access.ViewOnly || item.ActiveAttemptID != nil || item.ActiveAttemptState != "" || item.ActiveAttemptVersion != "" {
 					t.Fatal("inactive group's grant affected access or an attempt leaked across targets")
+				}
+				if item.ActiveExecutionID == nil || *item.ActiveExecutionID != execution || item.ActiveExecutionPhase != "queued" || item.ActiveExecutionOutcome != "" {
+					t.Fatal("active execution projection is missing or leaked")
 				}
 			} else {
 				t.Fatal("foreign target appeared in user list")
