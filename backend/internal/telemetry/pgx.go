@@ -88,11 +88,7 @@ func (QueryTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.Trac
 	if data.Err != nil {
 		fields = append(fields, "sqlstate", safeErr.Code, "error_kind", safeErr.Kind)
 	}
-	if data.Err != nil || state.transaction != "" {
-		logger(ctx).InfoContext(ctx, "SQL query completed", fields...)
-	} else {
-		logger(ctx).DebugContext(ctx, "SQL query completed", fields...)
-	}
+	logger(ctx).InfoContext(ctx, "SQL query completed", fields...)
 }
 
 func sqlFields(ctx context.Context, safe SanitizedSQL, args []string, operation, transaction string) []any {
