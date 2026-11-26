@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/telemetry"
 )
 
 type requestIDKey struct{}
@@ -66,8 +67,16 @@ func Middleware(logger *slog.Logger, next http.Handler) http.Handler {
 			default:
 				method = "OTHER"
 			}
-			logger.Info("HTTP request", "request_id", id.String(), "method", method,
-				"route", r.Pattern, "status", status, "duration", time.Since(started), "panicked", panicValue != nil)
+			attrs := []any{
+				"request_id", id.String(),
+				"method", method,
+				"route", r.Pattern,
+				"status", status,
+				"duration", time.Since(started),
+				"panicked", panicValue != nil,
+			}
+			attrs = append(attrs, telemetry.TraceAttrs(r.Context())...)
+			logger.Info("HTTP request", attrs...)
 			if aborted {
 				panic(http.ErrAbortHandler)
 			}
