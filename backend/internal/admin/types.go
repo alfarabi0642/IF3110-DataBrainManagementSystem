@@ -6,11 +6,49 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/access"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/auth"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
 	"github.com/google/uuid"
 )
+
+type UserItem struct {
+	ID          string `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	IsActive    bool   `json:"is_active"`
+	IsAdmin     bool   `json:"is_platform_admin"`
+	Revision    int64  `json:"revision,string"`
+}
+
+type GroupItem struct {
+	ID                string  `json:"id"`
+	Name              string  `json:"name"`
+	IsActive          bool    `json:"is_active"`
+	Revision          int64   `json:"revision,string"`
+	LeaderID          *string `json:"leader_id"`
+	LeaderUsername    string  `json:"leader_username,omitempty"`
+	LeaderDisplayName string  `json:"leader_display_name,omitempty"`
+}
+
+type MemberItem struct {
+	ID          string `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	IsActive    bool   `json:"is_active"`
+}
+
+type GrantItem struct {
+	DatabaseID   string       `json:"database_id"`
+	DatabaseName string       `json:"database_name"`
+	Access       access.Level `json:"access"`
+}
+
+type DatabaseChoice struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
 
 type CreateUserInput struct {
 	Username        string
@@ -32,7 +70,8 @@ type ResetPasswordInput struct {
 }
 
 type CreateGroupInput struct {
-	Name string
+	Name     string
+	LeaderID uuid.UUID
 }
 
 type EditGroupInput struct {
