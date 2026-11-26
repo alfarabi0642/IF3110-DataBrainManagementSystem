@@ -14,7 +14,7 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/config"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/jobs"
-	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/worker"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/secret"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/targets"
@@ -96,7 +96,7 @@ func run(logger *slog.Logger) (err error) {
 	if err != nil {
 		return err
 	}
-	executor, err := migration.NewWorkerExecutor(pool.Pool, provider, key, logger)
+	executor, err := worker.NewWorkerExecutor(pool.Pool, provider, key, logger)
 	if err != nil {
 		return err
 	}

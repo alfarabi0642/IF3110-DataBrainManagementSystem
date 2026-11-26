@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/config"
-	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/worker"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/secret"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/targets"
@@ -89,7 +89,7 @@ func runReconcileExecution(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "Invalid target provider configuration.")
 		return 1
 	}
-	result, err := migration.ReconcileExecution(ctx, pool.Pool, provider, key, executionID)
+	result, err := worker.ReconcileExecution(ctx, pool.Pool, provider, key, executionID)
 	if err != nil {
 		fmt.Fprintf(stderr, "Reconciliation refused (evidence=%s): %v\n", result.Evidence, err)
 		return 1

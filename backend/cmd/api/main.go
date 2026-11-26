@@ -18,6 +18,8 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/explorer"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/httpapi"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/legacy"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/secret"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/targets"
@@ -88,7 +90,7 @@ func run(logger *slog.Logger) (err error) {
 			}
 		}
 	}()
-	if _, err := migration.RecoverInterrupted(ctx, db); err != nil {
+	if _, err := legacy.RecoverInterrupted(ctx, db); err != nil {
 		logger.Error("migration startup recovery failed; HTTP not started")
 		return err
 	}
@@ -122,7 +124,7 @@ func run(logger *slog.Logger) (err error) {
 	provider.RegisterAdminAPI(apiMux, middleware, authorizer)
 	explorerService := explorer.New(provider)
 	explorerService.RegisterAPI(apiMux, middleware, db.Pool, authorizer)
-	runner, err := migration.NewRunner(migration.NewAttemptStore(db.Pool), provider, authorizer)
+	runner, err := legacy.NewRunner(legacy.NewAttemptStore(db.Pool), provider, authorizer)
 	if err != nil {
 		return err
 	}
@@ -130,7 +132,7 @@ func run(logger *slog.Logger) (err error) {
 	if err != nil {
 		return err
 	}
-	draftHandler, err := migration.NewAPIHandler(migrationService)
+	draftHandler, err := httpapi.NewAPIHandler(migrationService)
 	if err != nil {
 		return err
 	}
