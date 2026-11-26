@@ -54,10 +54,11 @@ func Acquire(ctx context.Context, pool *pgxpool.Pool) (*pgxpool.Conn, error) {
 
 func checkSchema(ctx context.Context, query DBTX) error {
 	var version int64
-	var dirty bool
-	err := query.QueryRow(ctx, `SELECT version,dirty FROM public.schema_migrations
-	    WHERE (SELECT count(*) FROM public.schema_migrations)=1`).Scan(&version, &dirty)
-	if err != nil || version != SchemaVersion || dirty {
+	var dirty, hasBatchProjection bool
+	err := query.QueryRow(ctx, `SELECT version,dirty,to_regclass('databrain.migration_execution_batches') IS NOT NULL
+	    FROM public.schema_migrations
+	    WHERE (SELECT count(*) FROM public.schema_migrations)=1`).Scan(&version, &dirty, &hasBatchProjection)
+	if err != nil || version != SchemaVersion || dirty || !hasBatchProjection {
 		return ErrSchema
 	}
 	return nil

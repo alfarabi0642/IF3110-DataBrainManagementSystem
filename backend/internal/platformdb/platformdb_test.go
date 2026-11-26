@@ -98,7 +98,7 @@ func TestPlatformPoolSchemaAndLock(t *testing.T) {
 		t.Fatal("cannot open migrator verification connection")
 	}
 	defer migrator.Close(context.Background())
-	for _, state := range []string{"version=0,dirty=false", "version=8,dirty=false", "version=1,dirty=true"} {
+	for _, state := range []string{"version=0,dirty=false", "version=8,dirty=false", "version=2,dirty=true"} {
 		if _, err := migrator.Exec(ctx, "UPDATE public.schema_migrations SET "+state); err != nil {
 			t.Fatal("cannot set test schema version")
 		}
@@ -106,7 +106,7 @@ func TestPlatformPoolSchemaAndLock(t *testing.T) {
 			t.Fatal("unsupported or dirty schema accepted")
 		}
 	}
-	if _, err := migrator.Exec(ctx, "UPDATE public.schema_migrations SET version=7,dirty=false"); err != nil {
+	if _, err := migrator.Exec(ctx, "UPDATE public.schema_migrations SET version=$1,dirty=false", SchemaVersion); err != nil {
 		t.Fatal("cannot restore test schema version")
 	}
 	db, err := Open(ctx, runtimeURL)

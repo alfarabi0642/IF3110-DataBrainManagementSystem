@@ -13,7 +13,7 @@ import (
 )
 
 // SchemaVersion harus sesuai dengan migration internal terbaru yang didukung.
-const SchemaVersion int64 = 8
+const SchemaVersion int64 = 2
 
 // DBTX dipakai bersama oleh query langsung dan transaksi pgx.
 type DBTX interface {
