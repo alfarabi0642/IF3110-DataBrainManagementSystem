@@ -60,8 +60,8 @@ func (a ExecutionJobArgs) Validate() error {
 	return nil
 }
 
-// ReferenceArgs adalah job referensi fondasi. Job ini membuktikan enqueue, konsumsi, drain, dan
-// persistensi melalui proses worker nyata sebelum executor migration (FEATURE-03) terdaftar.
+// ReferenceArgs adalah job referensi untuk menguji enqueue, konsumsi, drain, dan persistensi
+// melalui proses worker nyata secara terisolasi.
 type ReferenceArgs struct {
 	Version     int       `json:"version"`
 	ReferenceID uuid.UUID `json:"reference_id"`
