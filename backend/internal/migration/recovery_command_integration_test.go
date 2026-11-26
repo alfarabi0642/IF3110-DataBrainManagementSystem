@@ -1,4 +1,4 @@
-package migration
+package migration_test
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/legacy"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -21,9 +22,9 @@ func TestRecoveryStartupAndCommandPostgres(t *testing.T) {
 	f, s := newAttemptFixture(t)
 	ctx := context.Background()
 	d := attemptDraft(t, f, f.a, `CREATE TABLE public.startup_must_not_run(id int)`)
-	r := mustReserve(t, s, f, d, ReserveInput{1, uuid.New()})
+	r := mustReserve(t, s, f, d, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()})
 	d2 := attemptDraft(t, f, f.b, d.SQL)
-	r2 := mustReserve(t, s, f, d2, ReserveInput{1, uuid.New()})
+	r2 := mustReserve(t, s, f, d2, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()})
 	if ok, err := s.Claim(ctx, r2); err != nil || !ok {
 		t.Fatal("cannot initialize running startup orphan")
 	}

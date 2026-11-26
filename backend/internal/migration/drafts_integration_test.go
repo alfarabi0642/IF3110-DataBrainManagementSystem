@@ -1,4 +1,4 @@
-package migration
+package migration_test
 
 import (
 	"context"
@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/jobs"
+	. "github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/sqlpolicy"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/migrations"
@@ -87,6 +90,9 @@ func newDraftFixture(t *testing.T) draftFixture {
 	if _, err := migrations.Up(u.String()); err != nil {
 		t.Fatal("test migration failed")
 	}
+	if _, err := jobs.Migrate(u.String()); err != nil {
+		t.Fatal("test queue migration failed")
+	}
 	u.User = url.UserPassword("databrain_runtime", os.Getenv("DATABRAIN_RUNTIME_PASSWORD"))
 	db, err := platformdb.Open(ctx, u.String())
 	if err != nil {
@@ -144,15 +150,15 @@ func TestDraftStorePostgres(t *testing.T) {
 		if err != nil || read != d {
 			t.Fatal("detail differs from stored draft")
 		}
-		changed := DraftInput{"  valid SQL stays draft  ", "CREATE TABLE public.never_executed(id int); UPDATE public.draft_marker SET value='changed';"}
-		saved, err := s.Save(ctx, f.a, d.ID, f.otherActor, SaveDraftInput{changed, 1})
+		changed := DraftInput{Title: "  valid SQL stays draft  ", SQL: "CREATE TABLE public.never_executed(id int); UPDATE public.draft_marker SET value='changed';"}
+		saved, err := s.Save(ctx, f.a, d.ID, f.otherActor, SaveDraftInput{DraftInput: changed, ExpectedRevision: 1})
 		if err != nil || saved.Revision != 2 || saved.SQL != changed.SQL || saved.Title != changed.Title || saved.CreatedBy != f.actor || saved.UpdatedBy != f.otherActor || !saved.CreatedAt.Equal(d.CreatedAt) || saved.UpdatedAt.Before(d.UpdatedAt) || saved.UpdatedAt.Location() != time.UTC {
 			t.Fatalf("save did not preserve revision/input/audit metadata: %v", err)
 		}
-		_, err = s.Save(ctx, f.a, d.ID, f.actor, SaveDraftInput{input, 1})
-		requireDraftCode(t, err, problem.RevisionConflict)
-		_, err = s.Save(ctx, f.a, d.ID, f.actor, SaveDraftInput{input, 1 << 40})
-		requireDraftCode(t, err, problem.RevisionConflict)
+		_, err = s.Save(ctx, f.a, d.ID, f.actor, SaveDraftInput{DraftInput: input, ExpectedRevision: 1})
+		RequireDraftCode(t, err, problem.RevisionConflict)
+		_, err = s.Save(ctx, f.a, d.ID, f.actor, SaveDraftInput{DraftInput: input, ExpectedRevision: 1 << 40})
+		RequireDraftCode(t, err, problem.RevisionConflict)
 		read, err = s.Get(ctx, f.a, d.ID)
 		if err != nil || read != saved {
 			t.Fatal("stale save overwrote newer input")
@@ -160,29 +166,29 @@ func TestDraftStorePostgres(t *testing.T) {
 	})
 	t.Run("target scope and missing resources", func(t *testing.T) {
 		_, err := s.Get(ctx, f.b, d.ID)
-		requireDraftCode(t, err, problem.DraftNotFound)
-		_, err = s.Save(ctx, f.b, d.ID, f.actor, SaveDraftInput{input, 2})
-		requireDraftCode(t, err, problem.DraftNotFound)
+		RequireDraftCode(t, err, problem.DraftNotFound)
+		_, err = s.Save(ctx, f.b, d.ID, f.actor, SaveDraftInput{DraftInput: input, ExpectedRevision: 2})
+		RequireDraftCode(t, err, problem.DraftNotFound)
 		_, err = s.Get(ctx, f.a, uuid.New())
-		requireDraftCode(t, err, problem.DraftNotFound)
-		_, err = s.Save(ctx, f.a, uuid.New(), f.actor, SaveDraftInput{input, 1})
-		requireDraftCode(t, err, problem.DraftNotFound)
+		RequireDraftCode(t, err, problem.DraftNotFound)
+		_, err = s.Save(ctx, f.a, uuid.New(), f.actor, SaveDraftInput{DraftInput: input, ExpectedRevision: 1})
+		RequireDraftCode(t, err, problem.DraftNotFound)
 		_, err = s.Create(ctx, uuid.New(), f.actor, input)
-		requireDraftCode(t, err, problem.DatabaseNotFound)
+		RequireDraftCode(t, err, problem.DatabaseNotFound)
 		_, err = s.Create(ctx, f.a, uuid.New(), input)
-		requireDraftCode(t, err, problem.ValidationFailed)
+		RequireDraftCode(t, err, problem.ValidationFailed)
 		if _, err := s.Create(ctx, f.b, f.actor, input); err != nil {
 			t.Fatal("draft save required an online target")
 		}
 	})
 	t.Run("bounded summary pagination", func(t *testing.T) {
-		large := DraftInput{strings.Repeat("猫", 120), strings.Repeat("猫", MaxSQLBytes/3) + "aa"}
+		large := DraftInput{Title: strings.Repeat("猫", 120), SQL: strings.Repeat("猫", sqlpolicy.MaxSQLBytes/3) + "aa"}
 		latest, err := s.Create(ctx, f.a, f.actor, large)
 		if err != nil || latest.SQL != large.SQL || latest.Title != large.Title {
 			t.Fatal("maximum valid input was not preserved")
 		}
 		// Timestamp identik menguji pengurutan penentu UUID secara deterministik.
-		if _, err := s.pool.Exec(ctx, "UPDATE databrain.migration_drafts SET updated_at='2026-01-01T00:00:00Z' WHERE target_id=$1", f.a); err != nil {
+		if _, err := s.Pool().Exec(ctx, "UPDATE databrain.migration_drafts SET updated_at='2026-01-01T00:00:00Z' WHERE target_id=$1", f.a); err != nil {
 			t.Fatal("cannot set this test's ordering fixture")
 		}
 		first, more, err := s.List(ctx, f.a, 1, 0)
@@ -193,7 +199,7 @@ func TestDraftStorePostgres(t *testing.T) {
 		if err != nil || len(second) != 1 || more || second[0].TargetID != f.a || strings.Compare(first[0].ID.String(), second[0].ID.String()) >= 0 {
 			t.Fatal("summary tie breaker/lookahead is incorrect")
 		}
-		if _, err := s.Save(ctx, f.a, latest.ID, f.actor, SaveDraftInput{large, 1}); err != nil {
+		if _, err := s.Save(ctx, f.a, latest.ID, f.actor, SaveDraftInput{DraftInput: large, ExpectedRevision: 1}); err != nil {
 			t.Fatal("cannot update latest draft")
 		}
 		items, more, err := s.List(ctx, f.a, 200, 0)
@@ -225,7 +231,7 @@ func TestDraftStorePostgres(t *testing.T) {
 		for _, actor := range []uuid.UUID{f.actor, f.otherActor} {
 			go func(actor uuid.UUID) {
 				<-start
-				draft, err := s.Save(ctx, f.a, d.ID, actor, SaveDraftInput{DraftInput{actor.String(), actor.String()}, current.Revision})
+				draft, err := s.Save(ctx, f.a, d.ID, actor, SaveDraftInput{DraftInput: DraftInput{Title: actor.String(), SQL: actor.String()}, ExpectedRevision: current.Revision})
 				results <- result{draft, err}
 			}(actor)
 		}
@@ -238,7 +244,7 @@ func TestDraftStorePostgres(t *testing.T) {
 				success++
 				winner = r.draft
 			} else {
-				requireDraftCode(t, r.err, problem.RevisionConflict)
+				RequireDraftCode(t, r.err, problem.RevisionConflict)
 				conflicts++
 			}
 		}
@@ -252,12 +258,12 @@ func TestDraftStorePostgres(t *testing.T) {
 		if err != nil {
 			t.Fatal("cannot read draft")
 		}
-		_, err = s.Save(ctx, f.a, d.ID, uuid.New(), SaveDraftInput{input, before.Revision})
-		requireDraftCode(t, err, problem.ValidationFailed)
+		_, err = s.Save(ctx, f.a, d.ID, uuid.New(), SaveDraftInput{DraftInput: input, ExpectedRevision: before.Revision})
+		RequireDraftCode(t, err, problem.ValidationFailed)
 		canceled, stop := context.WithCancel(ctx)
 		stop()
-		_, err = s.Save(canceled, f.a, d.ID, f.actor, SaveDraftInput{input, before.Revision})
-		requireDraftCode(t, err, problem.PlatformUnavailable)
+		_, err = s.Save(canceled, f.a, d.ID, f.actor, SaveDraftInput{DraftInput: input, ExpectedRevision: before.Revision})
+		RequireDraftCode(t, err, problem.PlatformUnavailable)
 		after, err := s.Get(ctx, f.a, d.ID)
 		if err != nil || before != after {
 			t.Fatal("failed save changed the draft")
@@ -272,10 +278,10 @@ func TestDraftStorePostgres(t *testing.T) {
 		if err := f.target.QueryRow(ctx, `SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'`).Scan(&relations); err != nil || relations != 1 {
 			t.Fatal("draft save changed target schema")
 		}
-		if err := s.pool.QueryRow(ctx, "SELECT count(*) FROM databrain.migration_attempts").Scan(&attempts); err != nil || attempts != 0 {
+		if err := s.Pool().QueryRow(ctx, "SELECT count(*) FROM databrain.migration_attempts").Scan(&attempts); err != nil || attempts != 0 {
 			t.Fatal("draft save created an execution attempt")
 		}
-		if s.pool.Stat().AcquiredConns() != 0 {
+		if s.Pool().Stat().AcquiredConns() != 0 {
 			t.Fatal("draft store leaked a platform lease")
 		}
 	})

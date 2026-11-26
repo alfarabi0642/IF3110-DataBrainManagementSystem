@@ -1,4 +1,4 @@
-package migration
+package migration_test
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/auth"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/httpapi"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/legacy"
 	"github.com/google/uuid"
 )
 
@@ -64,9 +66,9 @@ func TestMigrationAPIPostgres(t *testing.T) {
 	ctx := context.Background()
 	base := "/api/databases/" + f.a.String()
 	drafts := base + "/drafts"
-	create := func(sql string) draftDTO {
+	create := func(sql string) httpapi.DraftDTO {
 		return apiData[struct {
-			Draft draftDTO `json:"draft"`
+			Draft httpapi.DraftDTO `json:"draft"`
 		}](t, web.jsonRequest(t, "POST", drafts, web.editor, jsonBody(t, map[string]string{"title": "猫 <script>draft</script>", "sql": sql}), 201)).Draft
 	}
 	input := func(revision, key string) string {
@@ -84,6 +86,16 @@ func TestMigrationAPIPostgres(t *testing.T) {
 		}
 	}
 	d := create("\r\nNOT SQL <script> 猫;\t")
+	irreversible := apiData[struct {
+		Draft httpapi.DraftDTO `json:"draft"`
+	}](t, web.jsonRequest(t, "POST", drafts, web.editor, jsonBody(t, map[string]any{
+		"title": "Irreversible draft", "sql": "CREATE TABLE public.api_irreversible(id int)",
+		"irreversible": true, "irreversible_reason": "No safe down.",
+	}), 201)).Draft
+	if !irreversible.Irreversible || irreversible.Frozen || irreversible.DownSQL == nil || *irreversible.DownSQL != "" ||
+		irreversible.IrreversibleReason == nil || *irreversible.IrreversibleReason != "No safe down." {
+		t.Fatal("irreversible draft fields were not preserved")
+	}
 	path := drafts + "/" + d.ID
 	if d.Revision != "1" || d.SQL == nil || *d.SQL != "\r\nNOT SQL <script> 猫;\t" {
 		t.Fatal("invalid draft SQL was normalized or rejected")
@@ -117,24 +129,24 @@ func TestMigrationAPIPostgres(t *testing.T) {
 	unsupported := create("SELECT 1;")
 	code(web.jsonRequest(t, "POST", drafts+"/"+unsupported.ID+"/execute", web.editor, input("1", uuid.NewString()), 422), "SQL_UNSUPPORTED")
 	sql := "\r\n-- 猫; exact snapshot\r\nCREATE TABLE public.api_once(id int PRIMARY KEY,value text); INSERT INTO public.api_once VALUES(1,'a;b');"
-	save := map[string]string{"title": "Saved snapshot", "sql": sql, "expected_revision": "1"}
+	save := map[string]string{"title": "Saved snapshot", "sql": sql, "down_sql": "DROP TABLE public.api_once", "expected_revision": "1"}
 	saved := apiData[struct {
-		Draft draftDTO `json:"draft"`
+		Draft httpapi.DraftDTO `json:"draft"`
 	}](t, web.jsonRequest(t, "POST", path, web.editor, jsonBody(t, save), 200)).Draft
-	if saved.Revision != "2" {
-		t.Fatal("revision not advanced")
+	if saved.Revision != "2" || saved.DownSQL == nil || *saved.DownSQL != "DROP TABLE public.api_once" || saved.Frozen {
+		t.Fatal("revision or down SQL was not saved")
 	}
 	code(web.jsonRequest(t, "POST", path, web.editor, jsonBody(t, save), 409), "REVISION_CONFLICT")
 	current := apiData[struct {
-		Draft draftDTO `json:"draft"`
+		Draft httpapi.DraftDTO `json:"draft"`
 	}](t, web.jsonRequest(t, "GET", path, web.editor, "", 200)).Draft
 	if current.SQL == nil || *current.SQL != sql || current.Revision != "2" {
 		t.Fatal("conflict overwrote draft")
 	}
 	review := apiData[struct {
-		Draft    draftDTO `json:"draft"`
-		Revision string   `json:"expected_revision"`
-		Key      string   `json:"request_key"`
+		Draft    httpapi.DraftDTO `json:"draft"`
+		Revision string           `json:"expected_revision"`
+		Key      string           `json:"request_key"`
 	}](t, web.jsonRequest(t, "GET", path+"/review", web.editor, "", 200))
 	if review.Revision != "2" || review.Key == "" || review.Draft.SQL == nil || *review.Draft.SQL != sql {
 		t.Fatal("review binding missing")
@@ -143,13 +155,13 @@ func TestMigrationAPIPostgres(t *testing.T) {
 	web.jsonRequest(t, "GET", canonical, web.editor, "", 200)
 	var attempts int
 	var absent bool
-	if err := f.store.pool.QueryRow(ctx, `SELECT count(*) FROM databrain.migration_attempts`).Scan(&attempts); err != nil || attempts != 0 {
+	if err := f.store.Pool().QueryRow(ctx, `SELECT count(*) FROM databrain.migration_attempts`).Scan(&attempts); err != nil || attempts != 0 {
 		t.Fatal("read or invalid execution reserved attempt")
 	}
 	if err := f.target.QueryRow(ctx, `SELECT to_regclass('public.api_once') IS NULL`).Scan(&absent); err != nil || !absent {
 		t.Fatal("review executed SQL")
 	}
-	receipt := apiData[receiptDTO](t, web.jsonRequest(t, "POST", path+"/execute", web.editor, input("2", review.Key), 200))
+	receipt := apiData[httpapi.ReceiptDTO](t, web.jsonRequest(t, "POST", path+"/execute", web.editor, input("2", review.Key), 200))
 	if receipt.State != "succeeded" || receipt.RequestKey != review.Key {
 		t.Fatal("missing committed receipt")
 	}
@@ -158,20 +170,26 @@ func TestMigrationAPIPostgres(t *testing.T) {
 		t.Fatal("target did not commit")
 	}
 	save["expected_revision"], save["sql"] = "2", "invalid latest SQL"
-	web.jsonRequest(t, "POST", path, web.editor, jsonBody(t, save), 200)
+	code(web.jsonRequest(t, "POST", path, web.editor, jsonBody(t, save), 409), "DRAFT_FROZEN")
+	frozen := apiData[struct {
+		Draft httpapi.DraftDTO `json:"draft"`
+	}](t, web.jsonRequest(t, "GET", path, web.editor, "", 200)).Draft
+	if !frozen.Frozen || frozen.DownSQL == nil || *frozen.DownSQL != "DROP TABLE public.api_once" {
+		t.Fatal("frozen definition lost its down SQL")
+	}
 	for range 2 {
-		replayed := apiData[receiptDTO](t, web.jsonRequest(t, "POST", path+"/execute", web.editor, input("2", review.Key), 200))
+		replayed := apiData[httpapi.ReceiptDTO](t, web.jsonRequest(t, "POST", path+"/execute", web.editor, input("2", review.Key), 200))
 		if replayed != receipt {
 			t.Fatal("same key replay changed receipt")
 		}
 		web.jsonRequest(t, "GET", canonical, web.editor, "", 200)
 	}
 	code(web.jsonRequest(t, "POST", path+"/execute", web.editor, input("3", review.Key), 409), "IDEMPOTENCY_CONFLICT")
-	code(web.jsonRequest(t, "POST", path+"/execute", web.editor, input("2", uuid.NewString()), 409), "REVISION_CONFLICT")
+	code(web.jsonRequest(t, "POST", path+"/execute", web.editor, input("2", uuid.NewString()), 409), "DRAFT_ALREADY_EXECUTED")
 	web.jsonRequest(t, "GET", base+"/receipts/"+review.Key, web.otherEditor, "", 404)
 	web.jsonRequest(t, "GET", base+"/receipts/"+review.Key, web.editor, "", 200)
 	detail := apiData[struct {
-		Attempt attemptDTO `json:"attempt"`
+		Attempt httpapi.AttemptDTO `json:"attempt"`
 	}](t, web.jsonRequest(t, "GET", base+"/attempts/"+receipt.ID, web.viewer, "", 200)).Attempt
 	hash := sha256.Sum256([]byte(sql))
 	if detail.SQL == nil || *detail.SQL != sql || detail.SQLHash != hex.EncodeToString(hash[:]) || detail.Title != "Saved snapshot" || detail.Revision != "2" || detail.Actor != "draft_editor_a" {
@@ -183,7 +201,7 @@ func TestMigrationAPIPostgres(t *testing.T) {
 		t.Fatal("history list exposed detail")
 	}
 	failed := create("CREATE TABLE public.api_rolled_back(id int); INSERT INTO public.api_once VALUES(1,'duplicate');")
-	failure := apiData[receiptDTO](t, web.jsonRequest(t, "POST", drafts+"/"+failed.ID+"/execute", web.editor, input("1", uuid.NewString()), 200))
+	failure := apiData[httpapi.ReceiptDTO](t, web.jsonRequest(t, "POST", drafts+"/"+failed.ID+"/execute", web.editor, input("1", uuid.NewString()), 200))
 	if failure.State != "failed" {
 		t.Fatal("definite failure not recorded")
 	}
@@ -191,7 +209,7 @@ func TestMigrationAPIPostgres(t *testing.T) {
 		t.Fatal("target transaction did not roll back")
 	}
 	failedDetail := apiData[struct {
-		Attempt attemptDTO `json:"attempt"`
+		Attempt httpapi.AttemptDTO `json:"attempt"`
 	}](t, web.jsonRequest(t, "GET", base+"/attempts/"+failure.ID, web.viewer, "", 200)).Attempt
 	if failedDetail.Failure == nil || failedDetail.Failure.SQLState != "23505" || failedDetail.Failure.StatementIndex != 2 {
 		t.Fatal("failure evidence missing")
@@ -202,7 +220,7 @@ CREATE TRIGGER api_reject_success BEFORE UPDATE ON databrain.migration_attempts 
 	unknown := create("CREATE TABLE public.api_unknown(id int); INSERT INTO public.api_unknown VALUES(1)")
 	unknownKey := uuid.NewString()
 	unknownPath := drafts + "/" + unknown.ID + "/execute"
-	uncertainReceipt := apiData[receiptDTO](t, web.jsonRequest(t, "POST", unknownPath, web.editor, input("1", unknownKey), 200))
+	uncertainReceipt := apiData[httpapi.ReceiptDTO](t, web.jsonRequest(t, "POST", unknownPath, web.editor, input("1", unknownKey), 200))
 	if uncertainReceipt.State != "unknown" {
 		t.Fatal("unrecorded commit advertised as terminal")
 	}
@@ -212,7 +230,7 @@ CREATE TRIGGER api_reject_success BEFORE UPDATE ON databrain.migration_attempts 
 		t.Fatal("unknown replay repeated committed SQL")
 	}
 	unknownDetail := apiData[struct {
-		Attempt attemptDTO `json:"attempt"`
+		Attempt httpapi.AttemptDTO `json:"attempt"`
 	}](t, web.jsonRequest(t, "GET", base+"/attempts/"+uncertainReceipt.ID, web.viewer, "", 200)).Attempt
 	if unknownDetail.State != "unknown" || unknownDetail.FinishedAt != nil || unknownDetail.FirstUnknownAt == nil || unknownDetail.Failure == nil {
 		t.Fatal("unknown history misrepresented evidence")
@@ -231,7 +249,7 @@ func TestMigrationAPIConcurrentPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rollbackAttempt(lock)
+	defer legacy.RollbackAttempt(lock)
 	runnerSQL(t, lock, `UPDATE public.draft_marker SET value=value`)
 	r := httptest.NewRequest("POST", path, strings.NewReader(body))
 	r.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: web.editor.token})
@@ -242,13 +260,13 @@ func TestMigrationAPIConcurrentPostgres(t *testing.T) {
 	go func() { w := httptest.NewRecorder(); web.app.ServeHTTP(w, r); result <- w }()
 	done := false
 	defer func() {
-		rollbackAttempt(lock)
+		legacy.RollbackAttempt(lock)
 		if !done {
 			<-result
 		}
 	}()
 	active := waitRunnerTarget(t, f, f.a, key, "Lock")
-	replay := apiData[receiptDTO](t, web.jsonRequest(t, "POST", path, web.editor, body, 200))
+	replay := apiData[httpapi.ReceiptDTO](t, web.jsonRequest(t, "POST", path, web.editor, body, 200))
 	if replay.ID != active.ID.String() || replay.State != "running" {
 		t.Fatal("concurrent replay did not return running receipt")
 	}
@@ -263,7 +281,7 @@ func TestMigrationAPIConcurrentPostgres(t *testing.T) {
 	}
 	completed := <-result
 	done = true
-	if completed.Code != 200 || apiData[receiptDTO](t, completed).State != "succeeded" {
+	if completed.Code != 200 || apiData[httpapi.ReceiptDTO](t, completed).State != "succeeded" {
 		t.Fatal("execution owner did not return committed receipt")
 	}
 	var value string
