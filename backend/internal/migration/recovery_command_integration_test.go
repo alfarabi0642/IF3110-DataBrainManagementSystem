@@ -36,14 +36,21 @@ func TestRecoveryStartupAndCommandPostgres(t *testing.T) {
 	}
 	defer closeDraftTestConn(owner)
 	runtimeURL := f.db.Pool.Config().ConnString()
-	module, _ := filepath.Abs("../..")
+	module, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal("cannot locate backend source", err)
+	}
 	dir := t.TempDir()
+	spa := t.TempDir()
+	if err := os.WriteFile(filepath.Join(spa, "index.html"), []byte("<!doctype html><title>Startup recovery test</title>"), 0600); err != nil {
+		t.Fatal("cannot create SPA fixture", err)
+	}
 	api, manage := filepath.Join(dir, "api.exe"), filepath.Join(dir, "manage.exe")
 	for target, pkg := range map[string]string{api: "./cmd/api", manage: "./cmd/manage"} {
-		build := exec.Command("go", "build", "-o", target, pkg)
+		build := exec.Command("go", "build", "-buildvcs=false", "-o", target, pkg)
 		build.Dir = module
-		if err := build.Run(); err != nil {
-			t.Fatal("cannot build actual startup/maintenance commands")
+		if output, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("cannot build %s: %v\n%s", pkg, err, output)
 		}
 	}
 	if err := f.db.Close(ctx); err != nil {
@@ -57,6 +64,7 @@ func TestRecoveryStartupAndCommandPostgres(t *testing.T) {
 	_ = port.Close()
 	env := append(os.Environ(), "APP_ENV=test", "PLATFORM_DATABASE_URL="+runtimeURL,
 		"HTTP_ADDR="+address, "APP_ORIGIN=http://"+address, "TARGET_ALLOWED_HOSTS=127.0.0.1",
+		"SPA_DIR="+spa,
 		"APP_SECRET_KEY="+base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x84}, 32)))
 	server := exec.Command(api)
 	server.Dir, server.Env = module, env

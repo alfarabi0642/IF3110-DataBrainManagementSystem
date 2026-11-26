@@ -42,7 +42,7 @@ if ($env:DATABRAIN_DATABASE_MODE -eq 'docker') {
     $env:MIGRATOR_DATABASE_URL = "postgres://databrain_migrator@127.0.0.1:$env:DATABRAIN_POSTGRES_PORT/databrain_dev?sslmode=disable"
     $env:MIGRATOR_DATABASE_PASSWORD = $env:DATABRAIN_MIGRATOR_PASSWORD
     # Compose hanya menginisialisasi volume kosong; upgrade tidak menjalankan setup.sql.
-    Invoke-Checked -Command docker -Arguments @('compose','-f','infra/compose.yaml','stop','app')
+    Invoke-Checked -Command docker -Arguments @('compose','-f','infra/compose.yaml','stop','app','worker')
     Invoke-Checked -Command docker -Arguments @('compose','-f','infra/compose.yaml','up','-d','--wait','postgres')
 }
 New-Item -ItemType Directory -Force -Path .tmp | Out-Null
@@ -50,6 +50,7 @@ Set-Location backend
 $env:CGO_ENABLED = '0'
 Invoke-Checked -Command go -Arguments @('build','-o','../.tmp/manage.exe','./cmd/manage')
 Invoke-Checked -Command go -Arguments @('build','-o','../.tmp/api.exe','./cmd/api')
+Invoke-Checked -Command go -Arguments @('build','-o','../.tmp/worker.exe','./cmd/worker')
 Invoke-Checked -Command ../.tmp/manage.exe -Arguments @('migrate','up')
 $passwordFile = [IO.Path]::GetTempFileName()
 try {
@@ -59,5 +60,13 @@ try {
 } finally {
     Remove-Item -LiteralPath $passwordFile -Force
 }
-Write-Output "DataBrain: $env:APP_ORIGIN (admin: $env:BOOTSTRAP_ADMIN_USERNAME)"
-Invoke-Checked -Command ../.tmp/api.exe -Arguments @()
+if (-not $env:WORKER_ADDR) { $env:WORKER_ADDR = '127.0.0.1:8081' }
+$worker = Start-Process -FilePath ../.tmp/worker.exe -NoNewWindow -PassThru
+try {
+    Write-Output "DataBrain: $env:APP_ORIGIN (admin: $env:BOOTSTRAP_ADMIN_USERNAME, worker: http://$env:WORKER_ADDR/healthz)"
+    Invoke-Checked -Command ../.tmp/api.exe -Arguments @()
+} finally {
+    if ($worker -and -not $worker.HasExited) {
+        Stop-Process -Id $worker.Id -ErrorAction SilentlyContinue
+    }
+}

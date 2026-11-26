@@ -31,18 +31,22 @@ CREATE ROLE databrain_target LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
     NOREPLICATION NOBYPASSRLS PASSWORD :'target_password';
 
 CREATE DATABASE databrain_dev OWNER databrain_migrator;
-CREATE DATABASE school_demo OWNER databrain_target;
-CREATE DATABASE inventory_demo OWNER databrain_target;
+CREATE DATABASE school_demo OWNER databrain_fixture_owner;
+CREATE DATABASE inventory_demo OWNER databrain_fixture_owner;
 
 REVOKE ALL ON DATABASE databrain_dev, school_demo, inventory_demo FROM PUBLIC;
 REVOKE ALL ON DATABASE postgres, template1 FROM PUBLIC;
 GRANT CONNECT ON DATABASE databrain_dev TO databrain_runtime;
+GRANT CONNECT, CREATE ON DATABASE school_demo TO databrain_target;
+GRANT CONNECT, CREATE ON DATABASE inventory_demo TO databrain_target;
 
 \connect databrain_dev
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 \connect school_demo
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
+GRANT USAGE, CREATE ON SCHEMA public TO databrain_target;
 \connect inventory_demo
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
+GRANT USAGE, CREATE ON SCHEMA public TO databrain_target;
 
--- Owner dapat membuat objek. Runtime hanya mendapat CONNECT; hak objek databrain diberikan migration aplikasi. Tidak ada membership, akun, tabel aplikasi, atau data demo yang dibuat di sini.
+-- Owner dapat membuat objek dan memasang databrain_runtime target journal (target-journal.sql). Runtime hanya mendapat CONNECT; hak objek databrain diberikan migration aplikasi. Tidak ada membership, akun, tabel aplikasi, atau data demo yang dibuat di sini.
