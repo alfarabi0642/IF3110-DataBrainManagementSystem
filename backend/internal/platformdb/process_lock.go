@@ -25,15 +25,8 @@ func openProcessLock(ctx context.Context, cfg *pgx.ConnConfig) (_ *pgx.Conn, err
 	if err := checkSchema(ctx, lock); err != nil {
 		return nil, err
 	}
-	var safeRole bool
-	if err := lock.QueryRow(ctx, `SELECT NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
-	    AND NOT has_schema_privilege(current_user,'databrain','CREATE')
-	    AND NOT has_table_privilege(current_user,'databrain.migration_attempts','DELETE,TRUNCATE')
-	    FROM pg_roles WHERE rolname=current_user`).Scan(&safeRole); err != nil {
-		return nil, ErrUnavailable
-	}
-	if !safeRole {
-		return nil, ErrRuntimeRole
+	if err := checkRuntimeRole(ctx, lock); err != nil {
+		return nil, err
 	}
 	var acquired bool
 	if err := lock.QueryRow(ctx, "SELECT pg_try_advisory_lock(3110,1)").Scan(&acquired); err != nil {

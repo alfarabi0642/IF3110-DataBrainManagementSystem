@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/telemetry"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -18,6 +19,7 @@ func runtimePoolConfig(databaseURL string) (*pgxpool.Config, error) {
 	cfg.ConnConfig.RuntimeParams["application_name"] = "databrain-platform"
 	cfg.ConnConfig.RuntimeParams["search_path"] = "pg_catalog,databrain"
 	cfg.ConnConfig.RuntimeParams["statement_timeout"] = "10000"
+	cfg.ConnConfig.Tracer = telemetry.QueryTracer{}
 	return cfg, nil
 }
 
@@ -57,6 +59,22 @@ func checkSchema(ctx context.Context, query DBTX) error {
 	    WHERE (SELECT count(*) FROM public.schema_migrations)=1`).Scan(&version, &dirty)
 	if err != nil || version != SchemaVersion || dirty {
 		return ErrSchema
+	}
+	return nil
+}
+
+// checkRuntimeRole menolak role yang dapat melakukan DDL, membuat role lain, atau menghapus bukti
+// attempt. Pemeriksaan ini dipakai server pemegang process lock dan pool runtime bersama.
+func checkRuntimeRole(ctx context.Context, query DBTX) error {
+	var safeRole bool
+	if err := query.QueryRow(ctx, `SELECT NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
+	    AND NOT has_schema_privilege(current_user,'databrain','CREATE')
+	    AND NOT has_table_privilege(current_user,'databrain.migration_attempts','DELETE,TRUNCATE')
+	    FROM pg_roles WHERE rolname=current_user`).Scan(&safeRole); err != nil {
+		return ErrUnavailable
+	}
+	if !safeRole {
+		return ErrRuntimeRole
 	}
 	return nil
 }

@@ -98,7 +98,7 @@ func TestPlatformPoolSchemaAndLock(t *testing.T) {
 		t.Fatal("cannot open migrator verification connection")
 	}
 	defer migrator.Close(context.Background())
-	for _, state := range []string{"version=0,dirty=false", "version=2,dirty=false", "version=1,dirty=true"} {
+	for _, state := range []string{"version=0,dirty=false", "version=8,dirty=false", "version=1,dirty=true"} {
 		if _, err := migrator.Exec(ctx, "UPDATE public.schema_migrations SET "+state); err != nil {
 			t.Fatal("cannot set test schema version")
 		}
@@ -106,7 +106,7 @@ func TestPlatformPoolSchemaAndLock(t *testing.T) {
 			t.Fatal("unsupported or dirty schema accepted")
 		}
 	}
-	if _, err := migrator.Exec(ctx, "UPDATE public.schema_migrations SET version=1,dirty=false"); err != nil {
+	if _, err := migrator.Exec(ctx, "UPDATE public.schema_migrations SET version=7,dirty=false"); err != nil {
 		t.Fatal("cannot restore test schema version")
 	}
 	db, err := Open(ctx, runtimeURL)
@@ -226,5 +226,71 @@ func TestPlatformInvalidDSNIsSafe(t *testing.T) {
 	db, err := Open(context.Background(), "postgres://SENSITIVE:%zz@localhost/platform")
 	if db != nil || err != ErrUnavailable || strings.Contains(err.Error(), "SENSITIVE") {
 		t.Fatal("invalid DSN was accepted or disclosed")
+	}
+}
+
+func TestRuntimePoolSharesPlatformWithoutProcessLock(t *testing.T) {
+	migratorURL, runtimeURL, _ := platformFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if pool, err := OpenPool(ctx, runtimeURL); !errors.Is(err, ErrSchema) || pool != nil {
+		t.Fatal("missing schema accepted by worker pool")
+	}
+	if _, err := migrations.Up(migratorURL); err != nil {
+		t.Fatal("fixture migration failed")
+	}
+	legacy, err := Open(ctx, runtimeURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closePlatform(t, legacy)
+	first, err := OpenPool(ctx, runtimeURL)
+	if err != nil {
+		t.Fatal("first worker pool was rejected while the server held the process lock")
+	}
+	defer func() {
+		closing, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := first.Close(closing); err != nil {
+			t.Error("first worker pool close exceeded its deadline")
+		}
+	}()
+	second, err := OpenPool(ctx, runtimeURL)
+	if err != nil {
+		t.Fatal("second worker pool was rejected while the server held the process lock")
+	}
+	defer func() {
+		closing, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := second.Close(closing); err != nil {
+			t.Error("second worker pool close exceeded its deadline")
+		}
+	}()
+	if !first.Ready(ctx) || !second.Ready(ctx) {
+		t.Fatal("worker pools did not report a checked platform")
+	}
+	if pool, err := OpenPool(ctx, migratorURL); !errors.Is(err, ErrRuntimeRole) || pool != nil {
+		t.Fatal("schema owner accepted as worker runtime role")
+	}
+	if db, err := Open(ctx, runtimeURL); !errors.Is(err, ErrProcessLock) || db != nil {
+		t.Fatal("worker pool weakened the legacy process lock")
+	}
+	lease, err := Acquire(ctx, first.Pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closing, stop := context.WithTimeout(ctx, 20*time.Millisecond)
+	if err := first.Close(closing); err != ErrUnavailable {
+		t.Fatal("worker pool close failed to respect the caller deadline")
+	}
+	stop()
+	lease.Release()
+	closeCtx, closeCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer closeCancel()
+	if err := first.Close(closeCtx); err != nil || first.Ready(ctx) {
+		t.Fatal("closed worker pool reported ready")
+	}
+	if pool, err := OpenPool(context.Background(), "postgres://SENSITIVE:%zz@localhost/platform"); pool != nil || err != ErrUnavailable || strings.Contains(err.Error(), "SENSITIVE") {
+		t.Fatal("invalid worker DSN was accepted or disclosed")
 	}
 }
