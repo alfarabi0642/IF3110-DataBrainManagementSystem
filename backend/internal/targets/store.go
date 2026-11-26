@@ -192,7 +192,7 @@ func (p *Provider) Edit(ctx context.Context, targetID uuid.UUID, input EditInput
 	}
 	defer rollback(tx)
 	var busy bool
-	err = tx.QueryRow(bounded, "SELECT active_attempt_id IS NOT NULL FROM databrain.migration_streams WHERE target_id=$1 FOR UPDATE", targetID).Scan(&busy)
+	err = tx.QueryRow(bounded, "SELECT active_attempt_id IS NOT NULL OR active_execution_id IS NOT NULL FROM databrain.migration_streams WHERE target_id=$1 FOR UPDATE", targetID).Scan(&busy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Target{}, failure(problem.DatabaseNotFound)
 	}
