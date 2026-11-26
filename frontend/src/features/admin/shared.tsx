@@ -4,7 +4,7 @@ import { apiFetch, ApiError, type Envelope } from '../../lib/api';
 import type { Session } from '../../lib/session';
 
 export type User = { id: string; username: string; display_name: string; is_active: boolean; is_platform_admin: boolean; revision: string };
-export type Group = { id: string; name: string; is_active: boolean; revision: string };
+export type Group = { id: string; name: string; is_active: boolean; revision: string; leader_id?: string | null; leader_username?: string; leader_display_name?: string };
 export type UserDetail = User & { groups: Group[] };
 export type Member = Pick<User, 'id' | 'username' | 'display_name' | 'is_active'>;
 export type GroupDetail = Group & {
@@ -19,6 +19,11 @@ export type Connection = {
 export type Probe = { ok: boolean; reason: string; server_version: number; latency_ms: number; latency: string };
 
 export const status = (active: boolean) => active ? 'Active' : 'Inactive';
+export function LeaderState({ group }: { group: Group }) {
+  return group.leader_id
+    ? <span>{group.leader_display_name || group.leader_username || group.leader_id}</span>
+    : <span className="badge">Repair needed</span>;
+}
 export const text = (form: HTMLFormElement | null, name: string) => String(new FormData(form ?? undefined).get(name) ?? '');
 export const submit = (action: { isPending: boolean; mutate: () => void }) => (event: FormEvent<HTMLFormElement>) => {
   event.preventDefault();

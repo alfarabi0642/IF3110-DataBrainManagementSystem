@@ -7,6 +7,9 @@ import { refreshSession, sessionQuery, type Session } from '../lib/session';
 import { Layout, Failure, LogoutForm, Pager } from './ui';
 import { AdminPage } from '../features/admin/AdminPage';
 import { ExplorerPage } from '../features/explorer/ExplorerPage';
+import { ExecutionPage } from '../features/executions/ExecutionPage';
+import { RequestsPage } from '../features/migrations/Requests';
+import { CommittedHistoryPage } from '../features/migrations/CommittedHistory';
 import { MigrationPage } from '../features/migrations/MigrationPage';
 
 type Database = {
@@ -14,6 +17,7 @@ type Database = {
   name: string;
   access: 'view_only' | 'view_edit';
   active_attempt: { id: string; version: string; state: string } | null;
+  active_execution: { id: string; phase: string; outcome?: string } | null;
 };
 
 function Login({ session }: { session: Session }) {
@@ -89,17 +93,20 @@ function Databases({ session }: { session: Session }) {
       {query.data.data.map((database) => {
         const base = `/databases/${database.id}`;
         const attempt = database.active_attempt;
+        const execution = database.active_execution;
         return <li className="db-card" key={database.id}>
           <div className="db-card-head">
             <span className="db-glyph" aria-hidden="true" />
             <span className={`access ${database.access}`}>{database.access === 'view_edit' ? 'View and edit' : 'View only'}</span>
           </div>
           <h2 className="db-name">{database.name}</h2>
-          <p className="db-progress"><span className="k">In progress</span>{attempt ? <><Link to={`${base}/migrations/${attempt.id}`}>{`Version ${attempt.version}`}</Link>{' '}<span className={`badge ${attempt.state}`}>{attempt.state}</span></> : 'None'}</p>
+          <p className="db-progress"><span className="k">In progress</span>{attempt ? <><Link to={`${base}/migrations/${attempt.id}`}>{`Version ${attempt.version}`}</Link>{' '}<span className={`badge ${attempt.state}`}>{attempt.state}</span></> : execution ? <><Link to={`${base}/executions/${execution.id}`}>{`Execution ${execution.phase}`}</Link>{' '}<span className={`badge ${execution.outcome ?? execution.phase}`}>{execution.outcome ?? execution.phase}</span></> : 'None'}</p>
           <div className="db-links">
             <Link to={`${base}/explorer`} aria-label={`Explorer for ${database.name}`}>Explorer</Link>
             {database.access === 'view_edit' && <Link to={`${base}/drafts`} aria-label={`Drafts for ${database.name}`}>Drafts</Link>}
-            <Link to={`${base}/migrations`} aria-label={`History for ${database.name}`}>History</Link>
+            <Link to={`${base}/requests`} aria-label={`Requests for ${database.name}`}>Requests</Link>
+            <Link to={`${base}/history`} aria-label={`History for ${database.name}`}>History</Link>
+            <Link to={`${base}/migrations`} aria-label={`Legacy attempts for ${database.name}`}>Legacy</Link>
           </div>
         </li>;
       })}
@@ -130,8 +137,13 @@ export function App() {
       <Route path="/databases/:id/drafts" element={<MigrationPage session={session.data.data} />} />
       <Route path="/databases/:id/drafts/:draftID" element={<MigrationPage session={session.data.data} />} />
       <Route path="/databases/:id/drafts/:draftID/review" element={<MigrationPage session={session.data.data} />} />
+      <Route path="/databases/:id/requests" element={<RequestsPage session={session.data.data} />} />
+      <Route path="/databases/:id/requests/:requestID" element={<RequestsPage session={session.data.data} />} />
       <Route path="/databases/:id/migrations" element={<MigrationPage session={session.data.data} />} />
       <Route path="/databases/:id/migrations/:attemptID" element={<MigrationPage session={session.data.data} />} />
+      <Route path="/databases/:id/history" element={<CommittedHistoryPage session={session.data.data} />} />
+      <Route path="/databases/:id/history/events/:executionID" element={<CommittedHistoryPage session={session.data.data} />} />
+      <Route path="/databases/:id/executions/:executionID" element={<ExecutionPage session={session.data.data} />} />
       <Route path="/admin/:resource" element={<AdminPage key={location.pathname} session={session.data.data} />} />
       <Route path="/admin/:resource/:id" element={<AdminPage key={location.pathname} session={session.data.data} />} />
       <Route path="*" element={<Layout title="Error"><Failure error={new ApiError(404, 'ROUTE_NOT_FOUND', 'Page not found.', '')} /></Layout>} />

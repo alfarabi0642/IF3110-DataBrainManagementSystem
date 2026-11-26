@@ -15,6 +15,7 @@ export function History({ base, attempts, page, searchKey }: { base: string; att
       <input id="request_key" name="request_key" value={key} onChange={(event) => setKey(event.target.value)} spellCheck={false} />
       <button type="submit">Find attempt</button>
     </form>
+    <p><Link to={`${base}/history?hide_rollback=false`}>Committed history and activity</Link></p>
     {attempts.length ? <>
       <div className="table-wrap"><table>
         <thead><tr><th>Version</th><th>Draft</th><th>Revision</th><th>Run by</th><th>Created (UTC)</th><th>Result</th></tr></thead>

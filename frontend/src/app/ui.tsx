@@ -42,7 +42,9 @@ export function Layout({ session, title, database, children }: { session?: Sessi
           <strong>{database.name}</strong>
           <Link to={`/databases/${database.id}/explorer`} aria-current={location.pathname.endsWith('/explorer') ? 'page' : undefined}>Explorer</Link>
           {database.access === 'view_edit' && <Link to={`/databases/${database.id}/drafts`} aria-current={location.pathname.includes('/drafts') ? 'page' : undefined}>Drafts</Link>}
-          <Link to={`/databases/${database.id}/migrations`} aria-current={location.pathname.includes('/migrations') ? 'page' : undefined}>History</Link>
+          <Link to={`/databases/${database.id}/requests`} aria-current={location.pathname.includes('/requests') ? 'page' : undefined}>Requests</Link>
+          <Link to={`/databases/${database.id}/history`} aria-current={location.pathname.includes('/history') ? 'page' : undefined}>History</Link>
+          <Link to={`/databases/${database.id}/migrations`} aria-current={location.pathname.includes('/migrations') ? 'page' : undefined}>Legacy</Link>
         </nav>}
         {user && <div className="account">
           <span className="avatar" aria-hidden="true">{user.display_name || user.username}</span>
