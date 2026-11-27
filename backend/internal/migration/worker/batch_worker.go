@@ -68,7 +68,12 @@ func (w *WorkerExecutor) executeBatch(ctx context.Context, conn *pgx.Conn, execu
 		return err
 	}
 	if owner != nil && owner.RootExecutionID != rootID {
-		return jobs.SnoozeError{Duration: workerLockSnooze, Reason: "physical target owned by another unresolved execution"}
+		if cleared, clearErr := w.clearFinishedForeignOwner(ctx, conn, owner); clearErr != nil {
+			return clearErr
+		} else if !cleared {
+			return jobs.SnoozeError{Duration: workerLockSnooze, Reason: "physical target owned by another unresolved execution"}
+		}
+		owner = nil
 	}
 
 	// Revalidasi kebijakan approval sebelum mulai (dan ulangi sebelum setiap batch baru).
@@ -117,7 +122,8 @@ func (w *WorkerExecutor) executeBatch(ctx context.Context, conn *pgx.Conn, execu
 		}
 	}
 
-	// Tangkap cakupan (hanya sekali per root execution) menggunakan keyset cursor terbatas 1 batch.
+	// Tangkap cakupan (hanya sekali per root execution) menggunakan keyset cursor terbatas 1 batch
+	// di dalam satu transaksi REPEATABLE READ agar snapshot konsisten dan atomik (tidak pernah parsial).
 	totalRows, totalBatches, err := journal.ReadBatchScopeMeta(ctx, conn, rootID)
 	if err != nil {
 		return err
@@ -137,10 +143,21 @@ func (w *WorkerExecutor) executeBatch(ctx context.Context, conn *pgx.Conn, execu
 	return w.runForwardBatches(ctx, conn, executionID, rootID, attemptNumber, op, plan, totalRows, totalBatches, ownerSecret)
 }
 
-// captureBatchScopeChunked membaca tabel target dalam potongan keyset <= batch_size sehingga
-// memori Go tidak pernah menampung seluruh dataset
+// captureBatchScopeChunked membaca tabel target dalam potongan keyset <= batch_size di dalam satu
+// transaksi REPEATABLE READ sehingga snapshot konsisten, atomik (all-or-nothing), dan memori Go
+// tidak pernah menampung seluruh dataset.
 func captureBatchScopeChunked(ctx context.Context, conn *pgx.Conn, rootID, actionID uuid.UUID,
 	planHash string, cfg sqlpolicy.BatchConfig) (int64, int, error) {
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		return 0, 0, err
+	}
+	defer func() {
+		rbCtx, cancel := context.WithTimeout(context.Background(), workerCleanupTimeout)
+		defer cancel()
+		_ = tx.Rollback(rbCtx)
+	}()
+
 	table := pgx.Identifier{cfg.Schema, cfg.Table}.Sanitize()
 	keyCol := pgx.Identifier{cfg.KeyColumn}.Sanitize()
 	valCol := pgx.Identifier{cfg.ValueColumn}.Sanitize()
@@ -152,13 +169,12 @@ func captureBatchScopeChunked(ctx context.Context, conn *pgx.Conn, rootID, actio
 
 	for {
 		var rows pgx.Rows
-		var err error
 		if !hasCursor {
-			rows, err = conn.Query(ctx,
+			rows, err = tx.Query(ctx,
 				"SELECT "+keyCol+", "+valCol+" FROM "+table+" ORDER BY "+keyCol+" ASC LIMIT $1",
 				cfg.BatchSize)
 		} else {
-			rows, err = conn.Query(ctx,
+			rows, err = tx.Query(ctx,
 				"SELECT "+keyCol+", "+valCol+" FROM "+table+" WHERE "+keyCol+" > $1 ORDER BY "+keyCol+" ASC LIMIT $2",
 				lastKey, cfg.BatchSize)
 		}
@@ -189,10 +205,13 @@ func captureBatchScopeChunked(ctx context.Context, conn *pgx.Conn, rootID, actio
 			break
 		}
 		ordinal++
-		if err := journal.RecordBatchScope(ctx, conn, rootID, actionID, planHash, ordinal, keys, beforeVals, afterVals); err != nil {
+		if err := journal.RecordBatchScope(ctx, tx, rootID, actionID, planHash, ordinal, keys, beforeVals, afterVals); err != nil {
 			return 0, 0, err
 		}
 		totalRows += int64(len(keys))
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, 0, err
 	}
 	return totalRows, ordinal, nil
 }
@@ -246,14 +265,14 @@ func (w *WorkerExecutor) runForwardBatches(ctx context.Context, conn *pgx.Conn, 
 		if err != nil {
 			_ = w.markBlockedPartial(executionID, rootID, attemptNumber, int64(len(committedOrds)), committedRowsCount,
 				"CONNECTION_FAILED", "Could not start batch transaction.", "")
-			return err
+			return jobs.PermanentError{Err: err}
 		}
 		txGuard, err := journal.ArmJournalTx(ctx, tx, rootID, executionID, op.PlanHash)
 		if err != nil {
 			w.rollbackTargetTx(tx)
 			_ = w.markBlockedPartial(executionID, rootID, attemptNumber, int64(len(committedOrds)), committedRowsCount,
 				"TARGET_JOURNAL_UNSAFE", "Could not arm batch transaction guard.", "")
-			return err
+			return jobs.PermanentError{Err: err}
 		}
 		if _, err := tx.Exec(ctx, `SET LOCAL statement_timeout='300s'; SET LOCAL lock_timeout='3s'; SET LOCAL search_path=public`, pgx.QueryExecModeSimpleProtocol); err != nil {
 			w.rollbackTargetTx(tx)
@@ -370,13 +389,13 @@ func (w *WorkerExecutor) runReverseCompensation(ctx context.Context, conn *pgx.C
 		return err
 	}
 	forwardOrds := make([]int, 0)
-	reverted := make(map[int]bool)
+	reverted := make(map[int]int64)
 	for _, c := range commits {
 		if c.BatchOrdinal >= 1 {
 			if c.Direction == execstore.DirectionApply || c.Direction == execstore.DirectionResume {
 				forwardOrds = append(forwardOrds, c.BatchOrdinal)
 			} else if c.Direction == execstore.DirectionCompensate {
-				reverted[c.BatchOrdinal] = true
+				reverted[c.BatchOrdinal] = c.RowsAffected
 			}
 		}
 	}
@@ -389,11 +408,22 @@ func (w *WorkerExecutor) runReverseCompensation(ctx context.Context, conn *pgx.C
 
 	var revertedBatches int64
 	var revertedRows int64
+	processed := 0
 	for _, ord := range forwardOrds {
-		if reverted[ord] {
+		if priorRows, done := reverted[ord]; done {
 			revertedBatches++
+			revertedRows += priorRows
 			continue
 		}
+		// Revalidasi izin dan approval sebelum setiap batch kompensasi berikutnya.
+		if processed > 0 {
+			if err := w.guard(ctx, op); err != nil {
+				_ = w.markPartiallyReverted(executionID, rootID, attemptNumber, revertedBatches, revertedRows,
+					"ELIGIBILITY_DENIED", "Approval or access changed between compensation batches.", "")
+				return jobs.PermanentError{Err: err}
+			}
+		}
+		processed++
 		scopeRows, err := journal.ReadBatchScope(ctx, conn, rootID, ord)
 		if err != nil {
 			return err
@@ -409,13 +439,13 @@ func (w *WorkerExecutor) runReverseCompensation(ctx context.Context, conn *pgx.C
 		tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 		if err != nil {
 			_ = w.markPartiallyReverted(executionID, rootID, attemptNumber, revertedBatches, revertedRows, "CONNECTION_FAILED", "Could not start compensation transaction.", "")
-			return err
+			return jobs.PermanentError{Err: err}
 		}
 		txGuard, err := journal.ArmJournalTx(ctx, tx, rootID, executionID, op.PlanHash)
 		if err != nil {
 			w.rollbackTargetTx(tx)
 			_ = w.markPartiallyReverted(executionID, rootID, attemptNumber, revertedBatches, revertedRows, "TARGET_JOURNAL_UNSAFE", "Could not arm compensation guard.", "")
-			return err
+			return jobs.PermanentError{Err: err}
 		}
 
 		// Verifikasi after-image sebelum menjalankan SQL down agar perubahan eksternal tidak tertimpa.
@@ -475,7 +505,7 @@ func (w *WorkerExecutor) runReverseCompensation(ctx context.Context, conn *pgx.C
 		}
 
 		nowUTC := time.Now().UTC()
-		reverted[ord] = true
+		reverted[ord] = tag.RowsAffected()
 		revertedBatches++
 		revertedRows += tag.RowsAffected()
 		_ = w.projectCommittedBatch(op.TargetID, rootID, executionID, ord, execstore.DirectionCompensate, tag.RowsAffected(), &cursorEnd, nowUTC)
@@ -511,6 +541,14 @@ func (w *WorkerExecutor) projectCommittedBatch(targetID, rootID, actionID uuid.U
 			_, err := tx.Exec(ctx, `UPDATE databrain.migration_executions
 				SET committed_batches=(SELECT count(*) FROM databrain.migration_execution_batches WHERE target_id=$1 AND execution_id=$2 AND direction IN ('apply','resume')),
 				    committed_rows=(SELECT coalesce(sum(rows_affected),0) FROM databrain.migration_execution_batches WHERE target_id=$1 AND execution_id=$2 AND direction IN ('apply','resume')),
+				    has_partial_commits=true
+				WHERE id=$3 AND phase <> 'finished'`, targetID, rootID, actionID)
+			return err
+		}
+		if dir == execstore.DirectionCompensate {
+			_, err := tx.Exec(ctx, `UPDATE databrain.migration_executions
+				SET committed_batches=(SELECT count(*) FROM databrain.migration_execution_batches WHERE target_id=$1 AND execution_id=$2 AND direction='compensate'),
+				    committed_rows=(SELECT coalesce(sum(rows_affected),0) FROM databrain.migration_execution_batches WHERE target_id=$1 AND execution_id=$2 AND direction='compensate'),
 				    has_partial_commits=true
 				WHERE id=$3 AND phase <> 'finished'`, targetID, rootID, actionID)
 			return err

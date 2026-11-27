@@ -62,6 +62,7 @@ func TestBrowserSPA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	handler.RetireLegacyExecute()
 	handler.RegisterAPI(apiMux, middleware)
 	mux := httpx.NewRouter(f.db.Ready)
 	assets, err := httpx.MountStatic(mux, "../../web/static")

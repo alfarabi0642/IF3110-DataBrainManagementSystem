@@ -284,15 +284,16 @@ func (s *Service) TargetHead(ctx context.Context, p access.Principal, targetID u
 			return TargetHeadState{}, draftFailure(problem.PlatformUnavailable)
 		}
 		var h HeadExecutionSummary
+		var mode string
 		h.ExecutionID = headID
-		err = s.store.pool.QueryRow(ctx, `SELECT e.definition_id, d.title, e.revision, def.irreversible, coalesce(def.irreversible_reason,'')
+		err = s.store.pool.QueryRow(ctx, `SELECT e.definition_id, d.title, e.revision, e.mode, def.irreversible, coalesce(def.irreversible_reason,'')
 			FROM databrain.migration_committed_events e
 			JOIN databrain.migration_definitions def ON def.target_id=e.target_id AND def.id=e.definition_id
 			JOIN databrain.migration_drafts d ON d.target_id=def.target_id AND d.id=def.draft_id
 			WHERE e.target_id=$1 AND e.execution_id=$2`, targetID, headID).
-			Scan(&h.DefinitionID, &h.Title, &h.Revision, &h.Irreversible, &h.IrreversibleReason)
+			Scan(&h.DefinitionID, &h.Title, &h.Revision, &mode, &h.Irreversible, &h.IrreversibleReason)
 		if err == nil {
-			h.CanRollback = !h.Irreversible
+			h.CanRollback = !h.Irreversible && mode != "batch"
 			out.Head = &h
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return TargetHeadState{}, draftFailure(problem.PlatformUnavailable)

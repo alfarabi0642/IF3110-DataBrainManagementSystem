@@ -101,9 +101,10 @@ try {
   const draftPath = base + '/drafts/' + created.data.draft.id;
   await go(draftPath);
   const sql = 'CREATE TABLE public.browser_committed(id int PRIMARY KEY); INSERT INTO public.browser_committed VALUES(1);';
-  await fill('#sql', sql); await submit(draftPath, 200);
+  const downSql = 'DROP TABLE public.browser_committed;';
+  await fill('#sql', sql); await fill('#down_sql', downSql); await submit(draftPath, 200);
   const saved = (await api(draftPath)).data.draft;
-  assert.equal((await api(draftPath, { title: 'Other editor', sql, expected_revision: saved.revision })).status, 200);
+  assert.equal((await api(draftPath, { title: 'Other editor', sql, down_sql: downSql, expected_revision: saved.revision })).status, 200);
   await fill('#title', 'Keep my unsaved input'); await submit(draftPath, 409);
   assert.equal(await page.$eval('#title', e => e.value), 'Keep my unsaved input');
   assert.ok(await page.$('[role=alert]'));
@@ -115,19 +116,20 @@ try {
   const reviewURL = new URL(page.url());
   await page.reload({ waitUntil: 'networkidle0' });
   assert.equal(page.url(), reviewURL.href);
-  await submit(draftPath + '/execute', 200);
-  await page.waitForFunction(() => /\/migrations\/[^/]+$/.test(location.pathname));
-  const attempt = new URL(page.url()).pathname;
-  assert.ok((await page.$eval('.status', e => e.textContent)).includes('committed'));
-  const replay = await api(draftPath + '/execute', Object.fromEntries(reviewURL.searchParams));
-  assert.equal(replay.data.id, attempt.split('/').pop());
-  checks.push('canonical review/refresh, actual commit, same-key replay and receipt');
+  const retired = await api(draftPath + '/execute', Object.fromEntries(reviewURL.searchParams));
+  assert.equal(retired.status, 410);
+  await submit(draftPath + '/submit', 201);
+  await page.waitForFunction(() => /\/requests\/[^/]+$/.test(location.pathname));
+  const requestPath = new URL(page.url()).pathname;
+  const replay = await api(draftPath + '/submit', Object.fromEntries(reviewURL.searchParams));
+  assert.equal(replay.data.request.id, requestPath.split('/').pop());
+  checks.push('canonical review/refresh, legacy execute 410, M2 request submit and same-key replay');
   const routes = [
     ['/databases', 'databases'], ['/admin/users', 'users'], ['/admin/users/' + users.data[0].id, 'user'],
     ['/admin/groups', 'groups'], ['/admin/groups/' + groups.data[0].id, 'group'],
     ['/admin/databases', 'connections'], ['/admin/databases/' + process.env.E2E_TARGET, 'connection'],
     [base + '/explorer?schema=public&table=browser_cells', 'explorer'],
-    [base + '/drafts', 'drafts'], [draftPath, 'draft'], [base + '/migrations', 'history'], [attempt, 'attempt'],
+    [base + '/drafts', 'drafts'], [draftPath, 'draft'], [base + '/requests', 'requests'], [requestPath, 'request'], [base + '/history', 'history'], [base + '/migrations', 'legacy-history'],
   ];
   for (const [device, width, height] of [['desktop', 1440, 1000], ['mobile', 390, 844]]) {
     await page.setViewport({ width, height, deviceScaleFactor: 1, isMobile: false, hasTouch: false });

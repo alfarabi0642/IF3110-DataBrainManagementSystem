@@ -324,7 +324,15 @@ func (h *APIHandler) reviewAPI(w http.ResponseWriter, r *http.Request, s apiScop
 		resultReceipt = &value
 	} else {
 		d := review.Draft
-		draft = &DraftDTO{ID: id.String(), Title: d.Title, SQL: &d.SQL, Revision: strconv.FormatInt(d.Revision, 10)}
+		dto := DraftDTO{
+			ID: id.String(), Title: d.Title, SQL: &d.SQL, DownSQL: &d.DownSQL,
+			Irreversible: d.Irreversible, Frozen: d.Frozen,
+			Revision: strconv.FormatInt(d.Revision, 10),
+		}
+		if d.IrreversibleReason != "" {
+			dto.IrreversibleReason = &d.IrreversibleReason
+		}
+		draft = &dto
 	}
 	httpx.WriteJSON(w, r, 200, struct {
 		Database   databaseDTO `json:"database"`

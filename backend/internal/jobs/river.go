@@ -156,6 +156,24 @@ func (w *ExecutionWorker) NextRetry(job *river.Job[ExecutionJobArgs]) time.Time 
 	return time.Now().UTC().Add(ExecutionRetryDelays[idx])
 }
 
+type attemptInfoKey struct{}
+
+type attemptInfo struct {
+	attempt     int
+	maxAttempts int
+}
+
+// WithAttemptInfo menyematkan nomor percobaan dan batas maksimum River ke context.
+func WithAttemptInfo(ctx context.Context, attempt, maxAttempts int) context.Context {
+	return context.WithValue(ctx, attemptInfoKey{}, attemptInfo{attempt: attempt, maxAttempts: maxAttempts})
+}
+
+// IsFinalAttempt melaporkan apakah pemanggilan saat ini merupakan percobaan terakhir River.
+func IsFinalAttempt(ctx context.Context) bool {
+	info, ok := ctx.Value(attemptInfoKey{}).(attemptInfo)
+	return ok && info.maxAttempts > 0 && info.attempt >= info.maxAttempts
+}
+
 func (w *ExecutionWorker) Work(ctx context.Context, job *river.Job[ExecutionJobArgs]) error {
 	if err := job.Args.Validate(); err != nil {
 		return river.JobCancel(err)
@@ -164,6 +182,7 @@ func (w *ExecutionWorker) Work(ctx context.Context, job *river.Job[ExecutionJobA
 		return river.JobCancel(errors.New("execution handler is not configured"))
 	}
 	ctx = telemetry.ExtractTraceContext(ctx, job.Args.TraceParent, job.Args.TraceState)
+	ctx = WithAttemptInfo(ctx, job.Attempt, job.MaxAttempts)
 	ctx, span := telemetry.Tracer().Start(ctx, "river.consume",
 		trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(
