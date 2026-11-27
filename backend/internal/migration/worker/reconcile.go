@@ -152,12 +152,20 @@ func ReconcileExecution(ctx context.Context, pool *pgxpool.Pool, provider *targe
 		_ = lock.Release(relCtx)
 	}()
 
-	ownerSecret, err := journal.DeriveOwnerSecret(appSecret, executionID)
+	rootID := executionID
+	if op.Mode == execstore.ModeBatch {
+		rootID, err = exec.resolveRootExecutionID(ctx, executionID)
+		if err != nil {
+			return ReconcileResult{ExecutionID: executionID, Evidence: EvidenceUnprovable}, ErrReconcileUnprovable
+		}
+	}
+
+	ownerSecret, err := journal.DeriveOwnerSecret(appSecret, rootID)
 	if err != nil {
 		return ReconcileResult{}, err
 	}
 
-	ev := ClassifyTargetEvidence(ctx, conn, executionID, op.Direction, op.PlanHash, rec.phase != "queued")
+	ev := ClassifyTargetEvidence(ctx, conn, rootID, op.Direction, op.PlanHash, rec.phase != "queued")
 	switch ev.State {
 	case EvidenceCommitted:
 		if err := exec.finalizeAndClearOwner(conn, executionID, 0, op, *ev.Commit, ownerSecret); err != nil {
@@ -171,8 +179,8 @@ func ReconcileExecution(ctx context.Context, pool *pgxpool.Pool, provider *targe
 		}, nil
 
 	case EvidenceNotStarted, EvidenceProvenRollback:
-		if ev.Owner != nil && ev.Owner.RootExecutionID == executionID {
-			if err := journal.ClearJournalOwner(ctx, conn, executionID, ownerSecret); err != nil {
+		if ev.Owner != nil && ev.Owner.RootExecutionID == rootID {
+			if err := journal.ClearJournalOwner(ctx, conn, rootID, ownerSecret); err != nil {
 				return ReconcileResult{ExecutionID: executionID, Evidence: ev.State}, err
 			}
 		}
@@ -188,7 +196,40 @@ func ReconcileExecution(ctx context.Context, pool *pgxpool.Pool, provider *targe
 		}, nil
 
 	case EvidencePartial:
-		return ReconcileResult{ExecutionID: executionID, Evidence: EvidencePartial}, ErrReconcilePartial
+		commits, readErr := journal.ReadJournalCommits(ctx, conn, rootID)
+		if readErr != nil {
+			return ReconcileResult{ExecutionID: executionID, Evidence: EvidenceUnprovable}, ErrReconcileUnprovable
+		}
+		var fwdBatches, fwdRows, compBatches, compRows int64
+		for _, c := range commits {
+			if c.BatchOrdinal < 1 {
+				continue
+			}
+			_ = exec.projectCommittedBatch(op.TargetID, rootID, executionID, c.BatchOrdinal, c.Direction, c.RowsAffected, c.CursorEnd, c.CommittedAt)
+			if c.Direction == execstore.DirectionCompensate {
+				compBatches++
+				compRows += c.RowsAffected
+			} else {
+				fwdBatches++
+				fwdRows += c.RowsAffected
+			}
+		}
+		outcome := "partial"
+		batches, rows := fwdBatches, fwdRows
+		if op.Direction == execstore.DirectionCompensate && compBatches > 0 {
+			outcome = "partially_reverted"
+			batches, rows = compBatches, compRows
+		}
+		if err := exec.markBlockedBatchOutcome(executionID, 0, outcome, batches, rows,
+			"RECONCILED_PARTIAL", "Target journal confirmed partial batch commits; submit approved resume or compensation.", ""); err != nil {
+			return ReconcileResult{ExecutionID: executionID, Evidence: EvidencePartial}, err
+		}
+		return ReconcileResult{
+			ExecutionID: executionID,
+			Evidence:    EvidencePartial,
+			FinalPhase:  "blocked",
+			Outcome:     outcome,
+		}, nil
 
 	default:
 		return ReconcileResult{ExecutionID: executionID, Evidence: EvidenceUnprovable}, ErrReconcileUnprovable

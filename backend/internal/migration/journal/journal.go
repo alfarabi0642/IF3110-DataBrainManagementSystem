@@ -460,16 +460,18 @@ type BatchScopeRow struct {
 }
 
 // RecordBatchScope mencatat cakupan satu batch ke databrain_runtime.batch_scope secara idempoten.
-func RecordBatchScope(ctx context.Context, conn *pgx.Conn, rootExecutionID, actionExecutionID uuid.UUID,
+func RecordBatchScope(ctx context.Context, q interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}, rootExecutionID, actionExecutionID uuid.UUID,
 	planHash string, batchOrdinal int, keys, beforeVals, afterVals []int64) error {
-	if conn == nil {
+	if q == nil {
 		return ErrTargetConnectionRequired
 	}
 	if rootExecutionID == uuid.Nil || actionExecutionID == uuid.Nil || !hexPlanHashRE.MatchString(planHash) ||
 		batchOrdinal < 1 || len(keys) == 0 || len(keys) != len(beforeVals) || len(keys) != len(afterVals) {
 		return errors.New("invalid batch scope arguments")
 	}
-	_, err := conn.Exec(ctx, `SELECT databrain_runtime.record_batch_scope($1, $2, $3, $4, $5, $6, $7)`,
+	_, err := q.Exec(ctx, `SELECT databrain_runtime.record_batch_scope($1, $2, $3, $4, $5, $6, $7)`,
 		rootExecutionID, actionExecutionID, planHash, int32(batchOrdinal), keys, beforeVals, afterVals)
 	return classifyJournalError(err)
 }

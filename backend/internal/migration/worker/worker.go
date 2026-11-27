@@ -151,9 +151,33 @@ func (w *WorkerExecutor) Execute(ctx context.Context, executionID, requestID uui
 		_ = w.markBlockedUnknown(executionID, 0, "PLAN_HASH_MISMATCH", "Stored execution plan failed integrity verification.", "")
 		return jobs.PermanentError{Err: errors.New("stored execution plan hash mismatch")}
 	}
-	if execRec.phase == "finished" {
+	if execRec.phase == "finished" || execRec.phase == "blocked" {
 		return nil
 	}
+
+	// Jika percobaan River terakhir mengembalikan error retryable (bukan snooze/permanent),
+	// selaraskan status eksekusi dan gate agar tidak tertinggal menggantung.
+	defer func() {
+		if retErr == nil || !jobs.IsFinalAttempt(ctx) {
+			return
+		}
+		var snooze jobs.SnoozeError
+		var perm jobs.PermanentError
+		if errors.As(retErr, &snooze) || errors.As(retErr, &perm) {
+			return
+		}
+		latest, loadErr := w.loadExecution(context.Background(), executionID)
+		if loadErr != nil || latest.phase == "finished" || latest.phase == "blocked" {
+			return
+		}
+		if latest.phase == "queued" {
+			_ = w.markFailedAndRelease(executionID, 0, "RETRIES_EXHAUSTED",
+				"Execution failed after exhausting automatic retries before starting.", "")
+		} else {
+			_ = w.markBlockedUnknown(executionID, 0, "RETRIES_EXHAUSTED",
+				"Execution exhausted automatic retries after starting; reconcile before retrying.", "")
+		}
+	}()
 
 	conn, err := w.provider.OpenMigration(ctx, op.TargetID, op.TargetConfigRevision, executionID)
 	if err != nil {
@@ -196,6 +220,12 @@ func (w *WorkerExecutor) Execute(ctx context.Context, executionID, requestID uui
 			code = "TARGET_JOURNAL_VERSION"
 			msg = "Target database journal schema version is not supported."
 		}
+		if execRec.phase != "queued" {
+			if blkErr := w.markBlockedUnknown(executionID, 0, code, msg, ""); blkErr != nil {
+				return blkErr
+			}
+			return jobs.PermanentError{Err: err}
+		}
 		if finErr := w.markFailedAndRelease(executionID, 0, code, msg, ""); finErr != nil {
 			return finErr
 		}
@@ -217,7 +247,11 @@ func (w *WorkerExecutor) Execute(ctx context.Context, executionID, requestID uui
 		return err
 	}
 	if owner != nil && owner.RootExecutionID != executionID {
-		return jobs.SnoozeError{Duration: workerLockSnooze, Reason: "physical target owned by another unresolved execution"}
+		if cleared, clearErr := w.clearFinishedForeignOwner(ctx, conn, owner); clearErr != nil {
+			return clearErr
+		} else if !cleared {
+			return jobs.SnoozeError{Duration: workerLockSnooze, Reason: "physical target owned by another unresolved execution"}
+		}
 	}
 
 	// Cek bukti commit yang mungkin sudah ada dari percobaan sebelum crash/lost-ack.
@@ -538,6 +572,52 @@ func (w *WorkerExecutor) rollbackTargetTx(tx pgx.Tx) {
 	ctx, cancel := context.WithTimeout(context.Background(), workerCleanupTimeout)
 	defer cancel()
 	_ = tx.Rollback(ctx)
+}
+
+// clearFinishedForeignOwner membersihkan unresolved_owner yang tertinggal di target apabila
+// worker sebelumnya crash setelah finalisasi platform (phase='finished') dan gate stream sudah lepas.
+func (w *WorkerExecutor) clearFinishedForeignOwner(ctx context.Context, conn *pgx.Conn, owner *journal.JournalOwner) (bool, error) {
+	if owner == nil || owner.RootExecutionID == uuid.Nil {
+		return false, nil
+	}
+	checkID := owner.ActionExecutionID
+	if checkID == uuid.Nil {
+		checkID = owner.RootExecutionID
+	}
+	lease, err := platformdb.Acquire(ctx, w.pool)
+	if err != nil {
+		return false, err
+	}
+	defer lease.Release()
+
+	var phase string
+	var stillActive bool
+	err = lease.QueryRow(ctx, `SELECT e.phase,
+		EXISTS (SELECT 1 FROM databrain.migration_streams s
+		        WHERE s.target_id = e.target_id AND s.active_execution_id IN ($1, $2))
+		FROM databrain.migration_executions e WHERE e.id = $2`,
+		owner.RootExecutionID, checkID).Scan(&phase, &stillActive)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	if phase != "finished" || stillActive {
+		return false, nil
+	}
+	staleSecret, err := journal.DeriveOwnerSecret(w.appSecret, owner.RootExecutionID)
+	if err != nil {
+		return false, err
+	}
+	if err := journal.ClearJournalOwner(ctx, conn, owner.RootExecutionID, staleSecret); err != nil {
+		return false, err
+	}
+	w.logger.Info("cleared stale target journal owner from already-finished execution",
+		"root_execution_id", owner.RootExecutionID.String(),
+		"action_execution_id", checkID.String(),
+	)
+	return true, nil
 }
 
 func (w *WorkerExecutor) loadExecution(ctx context.Context, executionID uuid.UUID) (storedExecution, error) {
