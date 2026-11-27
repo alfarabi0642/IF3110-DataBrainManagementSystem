@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 type Admission struct {
@@ -25,14 +26,24 @@ type Admission struct {
 
 // AcceptRequest mengonsumsi request yang sudah approved menjadi tepat satu execution/job pada transaksi
 // yang sama. Hanya initiating editor yang dapat memanggilnya; SQL target tidak pernah dijalankan di sini.
-func (s *Service) AcceptRequest(ctx context.Context, p access.Principal, targetID, requestID uuid.UUID, requestKey uuid.UUID) (Admission, error) {
+func (s *Service) AcceptRequest(ctx context.Context, p access.Principal, targetID, requestID uuid.UUID, requestKey uuid.UUID) (adm Admission, retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "migration.admit")
 	span.SetAttributes(
 		attribute.String(telemetry.FieldDatabase, targetID.String()),
 		attribute.String(telemetry.FieldRequestID, requestID.String()),
 		attribute.String(telemetry.FieldActor, p.UserID.String()),
 	)
-	defer span.End()
+	ctx = telemetry.WithLogAttrs(ctx,
+		telemetry.FieldDatabase, targetID.String(),
+		telemetry.FieldRequestID, requestID.String(),
+		telemetry.FieldActor, p.UserID.String(),
+	)
+	defer func() {
+		if retErr != nil {
+			span.SetStatus(codes.Error, telemetry.SanitizeError(retErr).Code)
+		}
+		span.End()
+	}()
 
 	if _, err := s.authorizer.RequireDatabase(ctx, p, targetID, access.MigrationWrite); err != nil {
 		return Admission{}, err

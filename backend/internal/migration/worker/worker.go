@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const (
@@ -94,16 +95,34 @@ func (w *WorkerExecutor) Execute(ctx context.Context, executionID, requestID uui
 		return jobs.PermanentError{Err: errors.New("invalid execution job reference")}
 	}
 	started := time.Now()
+	riverAttempt := jobs.Attempt(ctx)
 	ctx, span := telemetry.Tracer().Start(ctx, "migration.execute")
 	span.SetAttributes(
 		attribute.String(telemetry.FieldExecutionID, executionID.String()),
 		attribute.String(telemetry.FieldRequestID, requestID.String()),
 		attribute.Int64(telemetry.FieldJobID, jobID),
+		attribute.Int(telemetry.FieldAttempt, riverAttempt),
 	)
+	ctx = telemetry.WithLogAttrs(ctx,
+		telemetry.FieldExecutionID, executionID.String(),
+		telemetry.FieldRequestID, requestID.String(),
+		telemetry.FieldJobID, jobID,
+		telemetry.FieldAttempt, riverAttempt,
+	)
+	finalStatus := ""
 	defer func() {
-		status := "succeeded"
-		if retErr != nil {
-			status = "error"
+		status := finalStatus
+		if status == "" {
+			status = "succeeded"
+			if retErr != nil {
+				var snooze jobs.SnoozeError
+				if errors.As(retErr, &snooze) {
+					status = "snoozed"
+				} else {
+					status = "error"
+					span.SetStatus(codes.Error, telemetry.SanitizeError(retErr).Code)
+				}
+			}
 		}
 		dur := time.Since(started).Milliseconds()
 		span.SetAttributes(
@@ -114,6 +133,7 @@ func (w *WorkerExecutor) Execute(ctx context.Context, executionID, requestID uui
 			telemetry.FieldExecutionID, executionID.String(),
 			telemetry.FieldRequestID, requestID.String(),
 			telemetry.FieldJobID, jobID,
+			telemetry.FieldAttempt, riverAttempt,
 			telemetry.FieldStatus, status,
 			telemetry.FieldDuration, dur,
 		}, telemetry.TraceAttrs(ctx)...)
@@ -129,8 +149,15 @@ func (w *WorkerExecutor) Execute(ctx context.Context, executionID, requestID uui
 		return err
 	}
 	op := execRec.op
+	ctx = telemetry.WithLogAttrs(ctx,
+		telemetry.FieldDatabase, op.TargetID.String(),
+		telemetry.FieldActor, op.ActorID.String(),
+		"migration_id", op.DefinitionID.String(),
+	)
 	span.SetAttributes(
 		attribute.String(telemetry.FieldDatabase, op.TargetID.String()),
+		attribute.String(telemetry.FieldActor, op.ActorID.String()),
+		attribute.String("migration_id", op.DefinitionID.String()),
 		attribute.String("direction", op.Direction),
 		attribute.String("mode", op.Mode),
 	)
@@ -138,7 +165,10 @@ func (w *WorkerExecutor) Execute(ctx context.Context, executionID, requestID uui
 		telemetry.FieldExecutionID, executionID.String(),
 		telemetry.FieldRequestID, requestID.String(),
 		telemetry.FieldDatabase, op.TargetID.String(),
+		telemetry.FieldActor, op.ActorID.String(),
+		"migration_id", op.DefinitionID.String(),
 		telemetry.FieldJobID, jobID,
+		telemetry.FieldAttempt, riverAttempt,
 		"direction", op.Direction,
 		"mode", op.Mode,
 	}, telemetry.TraceAttrs(ctx)...)
@@ -152,6 +182,11 @@ func (w *WorkerExecutor) Execute(ctx context.Context, executionID, requestID uui
 		return jobs.PermanentError{Err: errors.New("stored execution plan hash mismatch")}
 	}
 	if execRec.phase == "finished" || execRec.phase == "blocked" {
+		if execRec.outcome != "" {
+			finalStatus = execRec.outcome
+		} else {
+			finalStatus = execRec.phase
+		}
 		return nil
 	}
 
@@ -166,7 +201,7 @@ func (w *WorkerExecutor) Execute(ctx context.Context, executionID, requestID uui
 		if errors.As(retErr, &snooze) || errors.As(retErr, &perm) {
 			return
 		}
-		latest, loadErr := w.loadExecution(context.Background(), executionID)
+		latest, loadErr := w.loadExecution(context.WithoutCancel(ctx), executionID)
 		if loadErr != nil || latest.phase == "finished" || latest.phase == "blocked" {
 			return
 		}
@@ -191,20 +226,32 @@ func (w *WorkerExecutor) Execute(ctx context.Context, executionID, requestID uui
 		return err
 	}
 	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), workerCleanupTimeout)
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), workerCleanupTimeout)
 		defer cancel()
 		_ = conn.Close(closeCtx)
 	}()
 
-	lock, acquired, err := journal.TryTargetLock(ctx, conn)
+	lockCtx, lockSpan := telemetry.Tracer().Start(ctx, "migration.lock")
+	lockSpan.SetAttributes(
+		attribute.String(telemetry.FieldDatabase, op.TargetID.String()),
+		attribute.String(telemetry.FieldExecutionID, executionID.String()),
+	)
+	lock, acquired, err := journal.TryTargetLock(lockCtx, conn)
 	if err != nil {
+		lockSpan.SetAttributes(attribute.Bool("lock.acquired", false), attribute.String(telemetry.FieldStatus, "error"))
+		lockSpan.SetStatus(codes.Error, telemetry.SanitizeError(err).Code)
+		lockSpan.End()
 		return err
 	}
 	if !acquired {
+		lockSpan.SetAttributes(attribute.Bool("lock.acquired", false), attribute.String(telemetry.FieldStatus, "contended"))
+		lockSpan.End()
 		return jobs.SnoozeError{Duration: workerLockSnooze, Reason: "target ownership lock held by another worker"}
 	}
+	lockSpan.SetAttributes(attribute.Bool("lock.acquired", true), attribute.String(telemetry.FieldStatus, "acquired"))
+	lockSpan.End()
 	defer func() {
-		relCtx, cancel := context.WithTimeout(context.Background(), workerCleanupTimeout)
+		relCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), workerCleanupTimeout)
 		defer cancel()
 		_ = lock.Release(relCtx)
 	}()
@@ -265,7 +312,7 @@ func (w *WorkerExecutor) Execute(ctx context.Context, executionID, requestID uui
 				_ = w.markBlockedUnknown(executionID, 0, "JOURNAL_HASH_MISMATCH", "Target journal commit hash conflicts with execution plan.", "")
 				return jobs.PermanentError{Err: head.ErrReconciliationConflict}
 			}
-			return w.finalizeAndClearOwner(conn, executionID, 0, op, c, ownerSecret)
+			return w.finalizeAndClearOwner(ctx, conn, executionID, 0, op, c, ownerSecret)
 		}
 	}
 
@@ -368,7 +415,7 @@ func (w *WorkerExecutor) Execute(ctx context.Context, executionID, requestID uui
 
 	commitErr := tx.Commit(ctx)
 	if commitErr != nil {
-		return w.handleCommitError(conn, executionID, attemptNumber, op, commitErr, ownerSecret)
+		return w.handleCommitError(ctx, conn, executionID, attemptNumber, op, commitErr, ownerSecret)
 	}
 
 	if w.AfterTargetCommit != nil {
@@ -379,7 +426,7 @@ func (w *WorkerExecutor) Execute(ctx context.Context, executionID, requestID uui
 	}
 
 	// Baca kembali bukti commit aktual dari target journal untuk finalisasi platform.
-	readCtx, cancelRead := context.WithTimeout(context.Background(), workerCleanupTimeout)
+	readCtx, cancelRead := context.WithTimeout(context.WithoutCancel(ctx), workerCleanupTimeout)
 	postCommits, readErr := journal.ReadJournalCommits(readCtx, conn, executionID)
 	cancelRead()
 	var committed journal.JournalCommit
@@ -403,7 +450,7 @@ func (w *WorkerExecutor) Execute(ctx context.Context, executionID, requestID uui
 		}
 	}
 
-	if err := w.finalizeAndClearOwner(conn, executionID, attemptNumber, op, committed, ownerSecret); err != nil {
+	if err := w.finalizeAndClearOwner(ctx, conn, executionID, attemptNumber, op, committed, ownerSecret); err != nil {
 		return err
 	}
 	if w.afterPlatformFinalize != nil {
@@ -432,7 +479,7 @@ func sqlForDirection(op execstore.ApprovedOperation) (string, error) {
 func (w *WorkerExecutor) handleTargetSQLFailure(ctx context.Context, conn *pgx.Conn, tx pgx.Tx,
 	executionID uuid.UUID, attemptNumber int, execErr error, stmtIndex int, ownerSecret [32]byte) error {
 	f := legacy.StatementFailure(ctx, execErr, stmtIndex)
-	rbCtx, cancelRB := context.WithTimeout(context.Background(), workerCleanupTimeout)
+	rbCtx, cancelRB := context.WithTimeout(context.WithoutCancel(ctx), workerCleanupTimeout)
 	rbErr := tx.Rollback(rbCtx)
 	cancelRB()
 	if rbErr != nil {
@@ -453,10 +500,10 @@ func (w *WorkerExecutor) handleTargetSQLFailure(ctx context.Context, conn *pgx.C
 	return jobs.PermanentError{Err: execErr}
 }
 
-func (w *WorkerExecutor) handleCommitError(conn *pgx.Conn, executionID uuid.UUID, attemptNumber int,
+func (w *WorkerExecutor) handleCommitError(ctx context.Context, conn *pgx.Conn, executionID uuid.UUID, attemptNumber int,
 	op execstore.ApprovedOperation, commitErr error, ownerSecret [32]byte) error {
 	// Periksa apakah target journal mencatat commit meskipun COMMIT error/putus.
-	checkCtx, cancelCheck := context.WithTimeout(context.Background(), workerCleanupTimeout)
+	checkCtx, cancelCheck := context.WithTimeout(context.WithoutCancel(ctx), workerCleanupTimeout)
 	commits, readErr := journal.ReadJournalCommits(checkCtx, conn, executionID)
 	cancelCheck()
 	if readErr == nil {
@@ -466,7 +513,7 @@ func (w *WorkerExecutor) handleCommitError(conn *pgx.Conn, executionID uuid.UUID
 					_ = w.markBlockedUnknown(executionID, attemptNumber, "JOURNAL_HASH_MISMATCH", "Target journal commit hash conflicts with execution plan.", "")
 					return jobs.PermanentError{Err: head.ErrReconciliationConflict}
 				}
-				return w.finalizeAndClearOwner(conn, executionID, attemptNumber, op, c, ownerSecret)
+				return w.finalizeAndClearOwner(ctx, conn, executionID, attemptNumber, op, c, ownerSecret)
 			}
 		}
 		// Koneksi masih sehat dan journal membuktikan 0 commit: hanya PgError definitif (mis. deferred constraint
@@ -488,9 +535,9 @@ func (w *WorkerExecutor) handleCommitError(conn *pgx.Conn, executionID uuid.UUID
 	return jobs.PermanentError{Err: commitErr}
 }
 
-func (w *WorkerExecutor) finalizeAndClearOwner(conn *pgx.Conn, executionID uuid.UUID, attemptNumber int,
+func (w *WorkerExecutor) finalizeAndClearOwner(ctx context.Context, conn *pgx.Conn, executionID uuid.UUID, attemptNumber int,
 	op execstore.ApprovedOperation, committed journal.JournalCommit, ownerSecret [32]byte) error {
-	finCtx, cancelFin := context.WithTimeout(context.Background(), workerPlatformTimeout)
+	finCtx, cancelFin := context.WithTimeout(context.WithoutCancel(ctx), workerPlatformTimeout)
 	defer cancelFin()
 	lease, err := platformdb.Acquire(finCtx, w.pool)
 	if err != nil {
@@ -559,7 +606,7 @@ func (w *WorkerExecutor) finalizeAndClearOwner(conn *pgx.Conn, executionID uuid.
 		return err
 	}
 
-	clearCtx, cancelClear := context.WithTimeout(context.Background(), workerCleanupTimeout)
+	clearCtx, cancelClear := context.WithTimeout(context.WithoutCancel(ctx), workerCleanupTimeout)
 	defer cancelClear()
 	if err := journal.ClearJournalOwner(clearCtx, conn, executionID, ownerSecret); err != nil {
 		// Platform sudah final; pembersihan owner target akan ditangani ulang pada rekonsiliasi.

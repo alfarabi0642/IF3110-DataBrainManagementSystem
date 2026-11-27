@@ -30,8 +30,8 @@ type QueryTracer struct{}
 
 func (QueryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	safe := SanitizeSQL(data.SQL)
-	operation := sqlOperation(data.SQL)
-	transaction := sqlTransaction(data.SQL)
+	operation := sqlOperation(safe.Template)
+	transaction := sqlTransaction(safe.Template)
 	ctx, span := otel.Tracer("databrain/sql").Start(ctx, "db.query", trace.WithSpanKind(trace.SpanKindClient))
 	args := RedactArgs(data.Args)
 	span.SetAttributes(
@@ -44,12 +44,8 @@ func (QueryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.Tr
 	if transaction != "" {
 		span.SetAttributes(attribute.String("db.transaction.operation", transaction))
 	}
-	fields := append(sqlFields(ctx, safe, args, operation, transaction), "duration_ms", int64(0))
-	if transaction != "" {
-		logger(ctx).InfoContext(ctx, "SQL query started", fields...)
-	} else {
-		logger(ctx).DebugContext(ctx, "SQL query started", fields...)
-	}
+	fields := append(sqlFields(ctx, safe, args, operation, transaction), FieldStatus, "started", "duration_ms", int64(0))
+	logger(ctx).InfoContext(ctx, "SQL query started", fields...)
 	return context.WithValue(ctx, pgxTraceKey{}, pgxTraceState{span: span, started: time.Now(), safe: safe,
 		args: args, operation: operation, transaction: transaction})
 }
@@ -62,10 +58,13 @@ func (QueryTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.Trac
 	safeErr := SanitizeError(data.Err)
 	elapsed := time.Since(state.started)
 	result := "confirmed"
+	status := "ok"
 	if state.transaction == "commit" && data.Err != nil {
 		result = "unknown"
+		status = "error"
 	} else if data.Err != nil {
 		result = "failed"
+		status = "error"
 	}
 	attrs := []attribute.KeyValue{
 		attribute.Int64("db.duration_ms", elapsed.Milliseconds()),
@@ -81,7 +80,7 @@ func (QueryTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.Trac
 	state.span.SetAttributes(attrs...)
 	state.span.End()
 	fields := append(sqlFields(ctx, state.safe, state.args, state.operation, state.transaction),
-		"duration_ms", elapsed.Milliseconds(), "rows", data.CommandTag.RowsAffected())
+		FieldStatus, status, "duration_ms", elapsed.Milliseconds(), "rows", data.CommandTag.RowsAffected())
 	if state.transaction != "" {
 		fields = append(fields, "transaction_result", result)
 	}
@@ -101,25 +100,33 @@ func sqlFields(ctx context.Context, safe SanitizedSQL, args []string, operation,
 		fields = append(fields, "trace_id", span.SpanContext().TraceID().String(),
 			"span_id", span.SpanContext().SpanID().String())
 	}
+	if extra := LogAttrs(ctx); len(extra) > 0 {
+		fields = append(fields, extra...)
+	}
 	return fields
 }
 
 func logger(_ context.Context) *slog.Logger { return slog.Default() }
 
-func sqlOperation(sql string) string {
-	fields := strings.Fields(strings.TrimSpace(sql))
+func sqlOperation(sanitizedSQL string) string {
+	fields := strings.Fields(strings.TrimSpace(sanitizedSQL))
 	if len(fields) == 0 {
 		return "unknown"
 	}
 	value := strings.ToUpper(strings.Trim(fields[0], ";"))
-	if len(value) > 24 {
+	if len(value) == 0 || len(value) > 24 {
 		return "other"
+	}
+	for _, r := range value {
+		if r < 'A' || r > 'Z' {
+			return "other"
+		}
 	}
 	return value
 }
 
-func sqlTransaction(sql string) string {
-	switch sqlOperation(sql) {
+func sqlTransaction(sanitizedSQL string) string {
+	switch sqlOperation(sanitizedSQL) {
 	case "BEGIN", "START":
 		return "begin"
 	case "COMMIT":
