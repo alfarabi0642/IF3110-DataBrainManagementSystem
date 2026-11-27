@@ -162,23 +162,19 @@ func TestRollbackAndForwardEndToEndPostgres(t *testing.T) {
 		t.Fatalf("table should be dropped after rollback: exists=%v err=%v", exists, err)
 	}
 
-	// 3. Divergent new apply while redo stack is non-empty must be rejected.
+	// 3. Submitting a new apply draft while redo stack is non-empty is allowed and does not clear
+	// the redo stack until the new apply actually commits.
 	d2, err := h.svc.CreateDraft(ctx, h.editor, h.rf.a, DraftInput{
 		Title: "Divergent B", SQL: `CREATE TABLE public.div_b (id int)`, DownSQL: `DROP TABLE public.div_b`,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.svc.SubmitRequest(ctx, h.editor, h.rf.a, d2.ID, d2.Revision, uuid.New()); err == nil {
-		t.Fatal("expected divergent apply to be rejected while redo stack is non-empty")
-	} else {
-		var pe *problem.Error
-		if !errors.As(err, &pe) || pe.Code != problem.ReviewHeadUnavailable {
-			t.Fatalf("expected REVIEW_HEAD_UNAVAILABLE, got %v", err)
-		}
+	if _, err := h.svc.SubmitRequest(ctx, h.editor, h.rf.a, d2.ID, d2.Revision, uuid.New()); err != nil {
+		t.Fatalf("expected new apply submit to succeed while redo stack is non-empty, got %v", err)
 	}
 
-	// 4. Submit forward request for A (immutable up SQL).
+	// 4. Submit forward request for A (immutable up SQL) still works because B was not committed.
 	head, err = headstore.LoadHead(ctx, h.rf.db.Pool, h.rf.a)
 	if err != nil || head.ActiveExecutionID != nil || head.Generation != 3 {
 		t.Fatalf("unexpected head after rollback: %+v err=%v", head, err)
@@ -213,6 +209,66 @@ func TestRollbackAndForwardEndToEndPostgres(t *testing.T) {
 	hiddenEvents, _, err := h.svc.CommittedHistory(ctx, h.editor, h.rf.a, 50, 0, true)
 	if err != nil || len(hiddenEvents) != 1 || hiddenEvents[0].ExecutionID != admFwd.ExecutionID {
 		t.Fatalf("expected only forward event when hide_rollback=true, got %+v err=%v", hiddenEvents, err)
+	}
+
+	// 6. Rollback A again, commit a new apply B, then verify redo stack is cleared and forward is rejected.
+	head, err = headstore.LoadHead(ctx, h.rf.db.Pool, h.rf.a)
+	if err != nil || head.ActiveExecutionID == nil || *head.ActiveExecutionID != admFwd.ExecutionID {
+		t.Fatalf("unexpected head before second rollback: %+v err=%v", head, err)
+	}
+	rbReq2, err := h.svc.SubmitRollbackRequest(ctx, h.editor, h.rf.a, reqApply.DefinitionID, admFwd.ExecutionID, head.Generation, uuid.New())
+	if err != nil {
+		t.Fatalf("second SubmitRollbackRequest failed: %v", err)
+	}
+	for _, g := range rbReq2.Groups {
+		p := h.principalForUser(t, ctx, g.LeaderID)
+		rbReq2, err = h.svc.ApproveRequest(ctx, p, h.rf.a, rbReq2.ID, g.GroupID)
+		if err != nil {
+			t.Fatalf("second rollback approve failed: %v", err)
+		}
+	}
+	admRB2, err := h.svc.AcceptRequest(ctx, h.editor, h.rf.a, rbReq2.ID, uuid.New())
+	if err != nil {
+		t.Fatalf("second rollback accept failed: %v", err)
+	}
+	if err := exec.Execute(ctx, admRB2.ExecutionID, admRB2.RequestID, admRB2.JobID); err != nil {
+		t.Fatalf("second rollback execute failed: %v", err)
+	}
+	d3, err := h.svc.CreateDraft(ctx, h.editor, h.rf.a, DraftInput{
+		Title: "Apply after rollback", SQL: `CREATE TABLE public.after_rb (id int)`, DownSQL: `DROP TABLE public.after_rb`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqB, err := h.svc.SubmitRequest(ctx, h.editor, h.rf.a, d3.ID, d3.Revision, uuid.New())
+	if err != nil {
+		t.Fatalf("submit after rollback failed: %v", err)
+	}
+	for _, g := range reqB.Groups {
+		p := h.principalForUser(t, ctx, g.LeaderID)
+		reqB, err = h.svc.ApproveRequest(ctx, p, h.rf.a, reqB.ID, g.GroupID)
+		if err != nil {
+			t.Fatalf("approve after rollback failed: %v", err)
+		}
+	}
+	admB, err := h.svc.AcceptRequest(ctx, h.editor, h.rf.a, reqB.ID, uuid.New())
+	if err != nil {
+		t.Fatalf("accept after rollback failed: %v", err)
+	}
+	if err := exec.Execute(ctx, admB.ExecutionID, admB.RequestID, admB.JobID); err != nil {
+		t.Fatalf("execute after rollback failed: %v", err)
+	}
+	head, err = headstore.LoadHead(ctx, h.rf.db.Pool, h.rf.a)
+	if err != nil || head.ActiveExecutionID == nil || *head.ActiveExecutionID != admB.ExecutionID {
+		t.Fatalf("unexpected head after new apply: %+v err=%v", head, err)
+	}
+	if _, err := h.svc.SubmitForwardRequest(ctx, h.editor, h.rf.a, reqApply.DefinitionID, admFwd.ExecutionID, head.Generation, uuid.New()); err == nil {
+		t.Fatal("expected forward request to be rejected after a new apply cleared the redo stack")
+	} else {
+		var pe *problem.Error
+		if !errors.As(err, &pe) || pe.Code != problem.RevisionConflict {
+			t.Fatalf("expected REVISION_CONFLICT for forward after new apply, got %v", err)
+		}
 	}
 }
 
