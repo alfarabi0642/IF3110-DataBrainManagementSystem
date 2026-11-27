@@ -13,7 +13,6 @@ import (
 
 var (
 	ErrReconciliationConflict = errors.New("committed evidence conflicts with stored execution or history")
-	ErrRedoStackNotEmpty      = errors.New("cannot apply a new migration while pending forward entries exist")
 )
 
 // CommitEvidence membawa bukti terverifikasi dari target journal untuk finalisasi history/head
@@ -100,13 +99,6 @@ func FinalizeCommitted(ctx context.Context, tx pgx.Tx, executionID uuid.UUID, ev
 
 	switch direction {
 	case execstore.DirectionApply:
-		var redoCount int
-		if err := tx.QueryRow(ctx, `SELECT count(*) FROM databrain.migration_redo_entries WHERE target_id=$1`, targetID).Scan(&redoCount); err != nil {
-			return err
-		}
-		if redoCount > 0 {
-			return ErrRedoStackNotEmpty
-		}
 		applied, err := loadCurrentlyAppliedDefinitions(ctx, tx, targetID)
 		if err != nil {
 			return err
@@ -120,7 +112,11 @@ func FinalizeCommitted(ctx context.Context, tx pgx.Tx, executionID uuid.UUID, ev
 		if err := insertCommittedEvent(ctx, tx, event); err != nil {
 			return err
 		}
-		return updateTargetHead(ctx, tx, nextHead)
+		if err := updateTargetHead(ctx, tx, nextHead); err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `DELETE FROM databrain.migration_redo_entries WHERE target_id=$1`, targetID)
+		return err
 
 	case execstore.DirectionRollback:
 		if head.ActiveExecutionID == nil {

@@ -469,16 +469,24 @@ func TestFinalizeCommittedApplyRollbackForwardAndIdempotencyPostgres(t *testing.
 	if err := runFinalize(eRollback, execstore.DirectionRollback, hRollback); err != nil {
 		t.Fatalf("rollback finalize failed: %v", err)
 	}
-	// Divergent apply while redo stack is non-empty must be rejected.
-	eDivergent, hDivergent := insertExec(execstore.DirectionApply)
-	if err := runFinalize(eDivergent, execstore.DirectionApply, hDivergent); !errors.Is(err, head.ErrRedoStackNotEmpty) {
-		t.Fatalf("expected ErrRedoStackNotEmpty, got %v", err)
-	}
 	if err := runFinalize(eForward, execstore.DirectionForward, hForward); err != nil {
 		t.Fatalf("forward finalize failed: %v", err)
 	}
-	head, err := head.LoadHead(ctx, h.rf.db.Pool, h.rf.a)
-	if err != nil || head.ActiveExecutionID == nil || *head.ActiveExecutionID != eForward || head.Generation != 4 {
-		t.Fatalf("unexpected head after apply->rollback->forward: %+v, err=%v", head, err)
+	hState, err := head.LoadHead(ctx, h.rf.db.Pool, h.rf.a)
+	if err != nil || hState.ActiveExecutionID == nil || *hState.ActiveExecutionID != eForward || hState.Generation != 4 {
+		t.Fatalf("unexpected head after apply->rollback->forward: %+v, err=%v", hState, err)
+	}
+	// Rollback again, then apply a new migration: redo stack must be cleared and forward must fail.
+	eRollback2, hRollback2 := insertExec(execstore.DirectionRollback)
+	if err := runFinalize(eRollback2, execstore.DirectionRollback, hRollback2); err != nil {
+		t.Fatalf("second rollback finalize failed: %v", err)
+	}
+	eApplyAfterRB, hApplyAfterRB := insertExec(execstore.DirectionApply)
+	if err := runFinalize(eApplyAfterRB, execstore.DirectionApply, hApplyAfterRB); err != nil {
+		t.Fatalf("apply after rollback finalize failed: %v", err)
+	}
+	eForwardBlocked, hForwardBlocked := insertExec(execstore.DirectionForward)
+	if err := runFinalize(eForwardBlocked, execstore.DirectionForward, hForwardBlocked); !errors.Is(err, head.ErrRedoSourceMismatch) {
+		t.Fatalf("expected ErrRedoSourceMismatch after new apply cleared redo stack, got %v", err)
 	}
 }

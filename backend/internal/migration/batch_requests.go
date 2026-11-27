@@ -107,13 +107,6 @@ func (s *Service) SubmitBatchRequest(ctx context.Context, p access.Principal, ta
 	if !state.initialized {
 		return ReviewRequest{}, draftFailure(problem.ReviewHeadUnavailable)
 	}
-	var redoCount int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM databrain.migration_redo_entries WHERE target_id=$1`, targetID).Scan(&redoCount); err != nil {
-		return ReviewRequest{}, draftFailure(problem.PlatformUnavailable)
-	}
-	if redoCount > 0 {
-		return ReviewRequest{}, draftFailure(problem.ReviewHeadUnavailable)
-	}
 	groups, err := access.RequiredGroups(ctx, tx, targetID)
 	if err != nil {
 		return ReviewRequest{}, err
