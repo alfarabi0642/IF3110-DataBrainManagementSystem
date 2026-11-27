@@ -67,30 +67,36 @@ export function Review({ session, base, draftID, review, search, readError }: {
     {!error && draft && <>
       <DefinitionPreview draft={draft} />
       <h2>Submit for review</h2>
-      <p className="callout">Submission freezes this definition and creates one durable request. Every required group leader must vote before admission; approved requests are executed asynchronously by the worker.</p>
+      <p className="callout" data-kicker="APPROVAL">Submission freezes this definition and creates one durable request. Every required group leader must vote before admission; approved requests are executed asynchronously by the worker.</p>
       <form method="post" action={`${base}/drafts/${draftID}/submit`} onSubmit={(event) => { event.preventDefault(); if (!submit.isPending) submit.mutate(); }}>
         <input type="hidden" name="_csrf" value={session.csrf_token} />
         <input type="hidden" name="expected_revision" value={revision} />
         <input type="hidden" name="request_key" value={key} />
-        <label>
+        <label className="check">
           <input type="checkbox" checked={batchEnabled} onChange={(event) => setBatchEnabled(event.target.checked)} />
           {' '}Use bounded batch execution (v1 numeric-delta recipe)
         </label>
-        {batchEnabled && <fieldset>
+        {batchEnabled && <fieldset className="config">
           <legend>Batch recipe parameters</legend>
-          <label htmlFor="batch-schema">Schema</label>
-          <input id="batch-schema" value={schema} onChange={(e) => setSchema(e.target.value)} required />
-          <label htmlFor="batch-table">Table</label>
-          <input id="batch-table" value={table} onChange={(e) => setTable(e.target.value)} required />
-          <label htmlFor="batch-key">Primary key column (bigint/int)</label>
-          <input id="batch-key" value={keyColumn} onChange={(e) => setKeyColumn(e.target.value)} required />
-          <label htmlFor="batch-value">Numeric value column</label>
-          <input id="batch-value" value={valueColumn} onChange={(e) => setValueColumn(e.target.value)} required />
-          <label htmlFor="batch-delta">Integer delta (non-zero)</label>
-          <input id="batch-delta" type="number" value={delta} onChange={(e) => setDelta(e.target.value)} required />
-          <label htmlFor="batch-size">Batch size (1–10000)</label>
-          <input id="batch-size" type="number" min={1} max={10000} value={batchSize} onChange={(e) => setBatchSize(e.target.value)} required />
+          <div className="field-grid">
+            <div><label htmlFor="batch-schema">Schema</label>
+            <input id="batch-schema" value={schema} onChange={(e) => setSchema(e.target.value)} required /></div>
+            <div><label htmlFor="batch-table">Table</label>
+            <input id="batch-table" value={table} onChange={(e) => setTable(e.target.value)} required /></div>
+            <div><label htmlFor="batch-key">Primary key column (bigint/int)</label>
+            <input id="batch-key" value={keyColumn} onChange={(e) => setKeyColumn(e.target.value)} required /></div>
+            <div><label htmlFor="batch-value">Numeric value column</label>
+            <input id="batch-value" value={valueColumn} onChange={(e) => setValueColumn(e.target.value)} required /></div>
+            <div><label htmlFor="batch-delta">Integer delta (non-zero)</label>
+            <input id="batch-delta" type="number" value={delta} onChange={(e) => setDelta(e.target.value)} required /></div>
+            <div><label htmlFor="batch-size">Batch size (1–10000)</label>
+            <input id="batch-size" type="number" min={1} max={10000} value={batchSize} onChange={(e) => setBatchSize(e.target.value)} required /></div>
+          </div>
         </fieldset>}
+        <p className="submit-preview" aria-live="polite">
+          {`Submitting revision ${revision} · `}<b>{batchEnabled ? 'batch' : 'normal'}</b>
+          {batchEnabled && <>{' · '}<b>{`${schema || '…'}.${table || '…'}`}</b>{` (${keyColumn || '…'}, ${valueColumn || '…'}) · delta `}<b>{delta || '…'}</b>{` · `}<b>{batchSize || '…'}</b>{' rows/batch'}</>}
+        </p>
         <button type="submit" className="execute" disabled={submit.isPending || !search}>
           {batchEnabled ? 'Submit batch request for group approval' : 'Submit for group approval'}
         </button>

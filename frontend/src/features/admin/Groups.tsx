@@ -66,7 +66,9 @@ export function GroupProfile({ group, session, saved }: { group: GroupDetail; se
       <button type="submit" disabled={edit.isPending}>Save group</button>
     </form>
     <h2>Leader</h2>
-    {!group.leader_id && <p className="status failed" role="alert">Repair needed: this group has no leader. Select an active member below.</p>}
+    {group.leader_id
+      ? <p className="status succeeded">Current leader: <LeaderState group={group} /></p>
+      : <p className="status failed" role="alert">Repair needed: this group has no leader. Select an active member below.</p>}
     {activeMembers.length ? <form ref={leaderForm} method="post" action={`${base}/leader`} className="panel form-panel compact-form" onSubmit={submit(leader)}>
       <input type="hidden" name="expected_revision" value={group.revision} />
       <label htmlFor="leader_user_id">{group.leader_id ? 'Replace leader' : 'Assign leader'}</label>

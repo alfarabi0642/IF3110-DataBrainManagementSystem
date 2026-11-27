@@ -63,21 +63,26 @@ function DraftForm({ base, draft, session }: { base: string; draft?: Draft; sess
       {saved && <input type="hidden" name="expected_revision" value={saved.revision} />}
       <label htmlFor="title">Title</label>
       <input id="title" name="title" maxLength={120} required value={title} disabled={busy || frozen} onChange={(event) => setTitle(event.target.value)} />
-      {!frozen && <details>
+      {!frozen && <details className="disclosure">
         <summary>Fill v1 bounded batch SQL template (optional)</summary>
+        <div className="disclosure-body">
         <p className="note">Generates the exact parameterized Up/Down SQL required for bounded batch mode. Set delta and batch size on the Review screen.</p>
-        <label htmlFor="tpl-schema">Schema</label>
-        <input id="tpl-schema" value={batchSchema} disabled={busy} onChange={(e) => setBatchSchema(e.target.value)} />
-        <label htmlFor="tpl-table">Table</label>
-        <input id="tpl-table" value={batchTable} disabled={busy} placeholder="accounts" onChange={(e) => setBatchTable(e.target.value)} />
-        <label htmlFor="tpl-key">Primary key column (bigint)</label>
-        <input id="tpl-key" value={batchKey} disabled={busy} onChange={(e) => setBatchKey(e.target.value)} />
-        <label htmlFor="tpl-value">Numeric value column (bigint)</label>
-        <input id="tpl-value" value={batchValue} disabled={busy} placeholder="balance" onChange={(e) => setBatchValue(e.target.value)} />
+        <div className="field-grid">
+          <div><label htmlFor="tpl-schema">Schema</label>
+          <input id="tpl-schema" value={batchSchema} disabled={busy} onChange={(e) => setBatchSchema(e.target.value)} /></div>
+          <div><label htmlFor="tpl-table">Table</label>
+          <input id="tpl-table" value={batchTable} disabled={busy} placeholder="accounts" onChange={(e) => setBatchTable(e.target.value)} /></div>
+          <div><label htmlFor="tpl-key">Primary key column (bigint)</label>
+          <input id="tpl-key" value={batchKey} disabled={busy} onChange={(e) => setBatchKey(e.target.value)} /></div>
+          <div><label htmlFor="tpl-value">Numeric value column (bigint)</label>
+          <input id="tpl-value" value={batchValue} disabled={busy} placeholder="balance" onChange={(e) => setBatchValue(e.target.value)} /></div>
+        </div>
         <button type="button" className="quiet" disabled={busy || !batchTable.trim() || !batchValue.trim()} onClick={fillBatchTemplate}>Fill Up &amp; Down batch SQL</button>
+        </div>
       </details>}
       <label htmlFor="sql">Up SQL</label>
       <SqlEditor id="sql" name="sql" filename="up.sql" value={sql} original={saved?.sql ?? ''} onChange={setSQL} disabled={busy || frozen} />
+      <div className={irreversible ? 'irreversible on' : 'irreversible'}>
       <label className="check"><input type="checkbox" name="irreversible" checked={irreversible} disabled={busy || frozen}
         onChange={(event) => { setIrreversible(event.target.checked); if (!event.target.checked) setReason(''); }} /> Irreversible — there is no down migration</label>
       {irreversible && <>
@@ -86,6 +91,7 @@ function DraftForm({ base, draft, session }: { base: string; draft?: Draft; sess
           onChange={(event) => setReason(event.target.value)} />
         <p className="note">Down SQL must stay empty for an irreversible definition.</p>
       </>}
+      </div>
       <label htmlFor="down_sql">Down SQL</label>
       <SqlEditor id="down_sql" name="down_sql" filename="down.sql" required={false} value={downSQL} original={saved?.down_sql ?? ''} onChange={setDownSQL} disabled={busy || frozen} />
       <p className="note">Down SQL is author-provided rollback SQL; the original data is not restored automatically. Leave it empty only when the migration is irreversible.</p>

@@ -85,7 +85,7 @@ export type Attempt = {
 
 export const utc = (value: string) => value.replace('T', ' ').replace(/(?:\.\d+)?Z$/, '');
 export function State({ state }: { state: string }) {
-  return <span className={`badge ${state}`}>{state}</span>;
+  return <span className={`badge ${state}`}>{state.replaceAll('_', ' ')}</span>;
 }
 
 export function FormError({ error }: { error: unknown }) {
@@ -114,7 +114,7 @@ export function DefinitionPreview({ draft }: { draft: Draft }) {
     <SQL sql={draft.sql ?? ''} />
     <h2>Down migration</h2>
     {draft.irreversible
-      ? <p className="callout"><strong>Irreversible.</strong> {draft.irreversible_reason || 'No reason recorded.'}</p>
+      ? <p className="callout warn" data-kicker="NO DOWN"><span><strong>Irreversible.</strong> {draft.irreversible_reason || 'No reason recorded.'}</span></p>
       : <SQL sql={draft.down_sql ?? ''} />}
     {draft.frozen && <p className="note">This definition is frozen. Create a new draft to change it.</p>}
   </>;

@@ -901,6 +901,137 @@ main > :nth-child(n+6) { animation-delay: .2s; }
   .db-grid { grid-template-columns: 1fr; }
 }
 
+/* Milestone 2: approval, eksekusi batch, dan head history. Semua selector dibatasi ke kelas baru. */
+.badge.queued, .status.queued, .badge.approved, .status.approved { --state: var(--accent); }
+.badge.queued::before, .status.queued::before { animation: pulse 1.8s var(--ease) infinite; }
+.badge.pending_review, .status.pending_review, .badge.partial, .status.partial, .badge.blocked, .status.blocked { --state: var(--wait); }
+.badge.stale, .status.stale, .badge.partially_reverted, .status.partially_reverted { --state: var(--bad); }
+
+button:disabled { opacity: .42; cursor: not-allowed; }
+button:disabled:hover { box-shadow: none; transform: none; }
+button:not(.quiet):disabled:hover { color: var(--bg); background: var(--ink); border-color: var(--ink); }
+button:disabled:hover::after { transform: none; }
+
+.callout[data-kicker]::before { content: attr(data-kicker); }
+.callout.warn { border-color: color-mix(in oklab, var(--bad) 40%, var(--line)); background: color-mix(in oklab, var(--bad) 4%, transparent); }
+.callout.warn::before { color: var(--bg); background: var(--bad); }
+main p.note { color: var(--ink-2); font-size: .88rem; line-height: 1.55; }
+
+/* Baris aksi: tombol sekunder tampil sebagai pil bergaris. */
+.actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .75rem 1rem; margin: 0 0 1.5rem; }
+.actions button { margin: 0; }
+.actions button.quiet {
+  padding: .9rem 1.3rem; border-radius: 999px; font-size: .9rem; font-weight: 550;
+  color: var(--ink); background: var(--surface); border-color: var(--line-strong);
+}
+.actions button.quiet:not(:disabled):hover { color: var(--accent); border-color: var(--accent); background: var(--surface); }
+.action-item { display: flex; flex-direction: column; align-items: flex-start; gap: .45rem; }
+.action-item .muted { font-size: .78rem; }
+
+/* Switch untuk checkbox. */
+label.check { display: inline-flex; align-items: center; gap: .7rem; margin: 1.35rem 0 .5rem; color: var(--ink); font-size: .9rem; font-weight: 500; cursor: pointer; }
+label.check input {
+  appearance: none; -webkit-appearance: none; position: relative; flex: none;
+  width: 2.25rem; height: 1.3rem; max-width: none; margin: 0; padding: 0; cursor: pointer;
+  background: var(--field); border: 1px solid var(--line-strong); border-radius: 999px;
+}
+label.check input::before {
+  content: ""; position: absolute; top: 50%; left: .16rem; width: .88rem; height: .88rem; border-radius: 50%;
+  background: var(--ink-3); translate: 0 -50%; transition: transform .25s var(--ease), background .2s var(--ease);
+}
+label.check input:checked { background: var(--accent); border-color: var(--accent); }
+label.check input:checked::before { background: var(--accent-ink); transform: translateX(.92rem); }
+label.check input:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--ring); }
+label.check input:disabled { opacity: .5; cursor: not-allowed; }
+label.check:has(input:disabled) { cursor: not-allowed; color: var(--ink-2); }
+
+/* Panel konfigurasi dan disclosure. */
+fieldset.config, details.disclosure, .irreversible {
+  max-width: 50rem; margin: 1rem 0 1.5rem; min-width: 0;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-sm);
+}
+fieldset.config { padding: .4rem 1.25rem 1.35rem; }
+fieldset.config legend {
+  padding: 0 .5rem; margin-left: -.5rem;
+  font: 500 .66rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent);
+}
+.field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0 1rem; }
+.field-grid label { margin-top: 1rem; }
+.field-grid input { max-width: none; }
+details.disclosure > summary {
+  display: flex; align-items: center; gap: .65rem; padding: .95rem 1.2rem; list-style: none; cursor: pointer;
+  font-size: .9rem; font-weight: 550; border-radius: var(--r-lg);
+}
+details.disclosure > summary::-webkit-details-marker { display: none; }
+details.disclosure > summary::before {
+  content: ""; flex: none; width: 1rem; height: 1rem;
+  background: var(--i-chevron) center / contain no-repeat; transform: rotate(-90deg); transition: transform .25s var(--ease);
+}
+details.disclosure[open] > summary { border-bottom: 1px solid var(--line-soft); border-radius: var(--r-lg) var(--r-lg) 0 0; }
+details.disclosure[open] > summary::before { transform: none; }
+details.disclosure > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.disclosure-body { padding: .25rem 1.2rem 1.25rem; }
+.disclosure-body button.quiet { margin-top: 1rem; border-color: var(--line-strong); }
+
+.irreversible { padding: 0 1.2rem 1rem; transition: border-color .25s var(--ease), background .25s var(--ease); }
+.irreversible label.check { margin-top: 1rem; }
+.irreversible.on { border-color: color-mix(in oklab, var(--bad) 35%, var(--line)); background: color-mix(in oklab, var(--bad) 4%, var(--surface)); }
+.irreversible.on label.check input:checked { background: var(--bad); border-color: var(--bad); }
+.irreversible.on label.check input:checked::before { background: var(--bg); }
+.irreversible textarea {
+  min-height: 6rem; white-space: pre-wrap; resize: vertical; box-shadow: none;
+  font: .92rem/1.55 var(--sans); color: var(--ink); background: var(--field); border-color: var(--line); caret-color: var(--accent);
+}
+.irreversible textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--ring); }
+.irreversible .note { margin: .6rem 0 0; }
+
+.submit-preview { max-width: 50rem; margin: 1.25rem 0 0; font: 400 .8rem/1.6 var(--mono); color: var(--ink-2); }
+.submit-preview b { font-weight: 500; color: var(--ink); }
+
+/* Angka committed dan progres. */
+dl.figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .75rem; max-width: 50rem; margin: 0 0 1rem; }
+dl.figures > div { min-width: 0; padding: 1rem 1.15rem 1.1rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); }
+dl.figures dt { font: 500 .66rem/1.2 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+dl.figures dd { margin: .6rem 0 0; font: 400 2.1rem/1 var(--serif); letter-spacing: -.02em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+progress.meter {
+  display: block; width: 100%; max-width: 50rem; height: .45rem; margin: 0 0 1.75rem;
+  appearance: none; -webkit-appearance: none; border: 0; border-radius: 999px; background: var(--line-soft); overflow: hidden;
+}
+progress.meter::-webkit-progress-bar { background: var(--line-soft); border-radius: 999px; }
+progress.meter::-webkit-progress-value { background: var(--accent); border-radius: 999px; transition: width .6s var(--ease); }
+progress.meter::-moz-progress-bar { background: var(--accent); border-radius: 999px; }
+.meta.failure { border-color: color-mix(in oklab, var(--bad) 30%, var(--line)); }
+.meta.failure dt { color: var(--bad); }
+.list-state { margin: 0 0 1.25rem; color: var(--ink-2); }
+
+/* Ringkasan approval per grup. */
+.tally { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin: 0 0 1.5rem; padding: 0; list-style: none; }
+.tally li.tally-count { padding: 0; border: 0; margin-right: .4rem; font: 500 .66rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+.tally li {
+  display: inline-flex; align-items: center; gap: .45rem; padding: .36rem .7rem; border-radius: 999px;
+  font-size: .82rem; color: var(--ink-2); border: 1px dashed var(--line-strong);
+}
+.tally li.tally-count::before { content: none; }
+.tally li::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%; border: 1.5px solid var(--ink-3); }
+.tally li.done { color: var(--ink); border-style: solid; border-color: color-mix(in oklab, var(--ok) 35%, var(--line)); background: color-mix(in oklab, var(--ok) 6%, var(--surface)); }
+.tally li.done::before { background: var(--ok); border-color: var(--ok); }
+.approvals td button { margin: 0; padding: .55rem .95rem .55rem 1rem; font-size: .82rem; white-space: nowrap; }
+.approvals .when { display: block; margin-top: .25rem; font: 400 .74rem/1.4 var(--mono); color: var(--ink-3); }
+
+/* Leader grup dan toolbar history. */
+.leader { display: inline-flex; align-items: center; gap: .5rem; }
+.leader::before { content: ""; width: .45rem; height: .45rem; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+.status .leader::before { display: none; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.25rem; margin: 0 0 1rem; }
+.toolbar label.check { margin: 0; }
+.toolbar .muted { font-size: .82rem; }
+
+@media (max-width: 40rem) {
+  dl.figures dd { font-size: 1.7rem; }
+  .actions, .action-item { width: 100%; }
+  .actions button { width: 100%; justify-content: space-between; }
+}
+
 @media print {
   .topbar, .skip { display: none; }
   .app .shell { display: block; }

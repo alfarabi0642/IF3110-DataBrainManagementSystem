@@ -33,7 +33,7 @@ export function HeadControls({
       <dt>Head generation</dt><dd>{headState.head_generation}</dd>
       <dt>Active migration</dt>
       <dd>{headState.head
-        ? <><Link to={`${base}/history/events/${headState.head.execution_id}`}>{headState.head.title}</Link>{` (rev ${headState.head.revision})`}{headState.head.irreversible ? ' · irreversible' : ''}</>
+        ? <><Link to={`${base}/history/events/${headState.head.execution_id}`}>{headState.head.title}</Link>{` (rev ${headState.head.revision})`}{headState.head.irreversible && <>{' '}<span className="badge failed">irreversible</span></>}</>
         : 'None (base state)'}</dd>
       <dt>Redo stack</dt>
       <dd>{headState.next_forward
@@ -42,7 +42,7 @@ export function HeadControls({
     </dl>
     {error ? <FormError error={error} /> : null}
     {canEdit && (headState.head || headState.next_forward) && <>
-      <p className="note">Rollback and forward each create a fresh approval request requiring every group leader to vote before execution.</p>
+      <p className="callout" data-kicker="APPROVAL">Rollback and forward each create a fresh approval request requiring every group leader to vote before execution.</p>
       <div className="actions">
         {headState.head && (
           <button
@@ -99,7 +99,7 @@ export function ActivityTable({ base, activity }: { base: string; activity: Acti
 function EventDetail({ base, event }: { base: string; event: CommittedEvent }) {
   return <>
     <dl className="meta">
-      <dt>Status</dt><dd>{event.status}</dd>
+      <dt>Status</dt><dd><State state={event.status} /></dd>
       <dt>Direction / mode</dt><dd>{event.direction} / {event.mode}</dd>
       <dt>Actor</dt><dd>{event.actor}</dd>
       <dt>Revision</dt><dd>{event.revision}</dd>
@@ -111,7 +111,7 @@ function EventDetail({ base, event }: { base: string; event: CommittedEvent }) {
     </dl>
     <h2>Up migration (frozen)</h2><SQL sql={event.sql ?? ''} />
     <h2>Down migration (frozen)</h2>
-    {event.irreversible ? <p className="callout"><strong>Irreversible.</strong> {event.irreversible_reason || 'No reason recorded.'}</p> : <SQL sql={event.down_sql ?? ''} />}
+    {event.irreversible ? <p className="callout warn" data-kicker="NO DOWN"><span><strong>Irreversible.</strong> {event.irreversible_reason || 'No reason recorded.'}</span></p> : <SQL sql={event.down_sql ?? ''} />}
     <p className="back"><Link to={`${base}/history?hide_rollback=false`}>All committed history</Link></p>
   </>;
 }
@@ -195,6 +195,11 @@ export function CommittedHistoryPage({ session }: { session: Session }) {
   const data = committed.data?.data;
   const events = data?.events ?? [];
   const page = committed.data?.page;
+  const activityLink = (offset: number) => {
+    const next = new URLSearchParams(search);
+    next.set('activity_offset', String(offset));
+    return `${base}/history?${next}`;
+  };
   return <Layout session={session} database={database} title="Committed history">
     <p className="page-intro">Append-only committed events from the current head model. Rollback pairs can be hidden without deleting or changing any event; failed activity remains visible below.</p>
     {headState && (
@@ -208,30 +213,24 @@ export function CommittedHistoryPage({ session }: { session: Session }) {
         error={moveHead.error}
       />
     )}
-    <form className="searchbar" onSubmit={(event) => event.preventDefault()} method="get" action={`${base}/history`}>
-      <label><input type="checkbox" checked={hide} onChange={(change) => {
+    <h2>Committed events</h2>
+    <form className="toolbar" onSubmit={(event) => event.preventDefault()} method="get" action={`${base}/history`}>
+      <label className="check"><input type="checkbox" checked={hide} onChange={(change) => {
         const next = new URLSearchParams(search);
         next.set('hide_rollback', String(change.target.checked));
         next.delete('offset');
         navigate(`${base}/history?${next}`, { replace: true });
       }} /> Hide rollback pairs</label>
+      <span className="muted">Hiding never deletes or changes an event.</span>
     </form>
     {committed.isError && <FormError error={committed.error} />}
-    {events.length ? <><CommittedEventTable base={base} events={events} /><Pager page={page} /></> : <p>No committed migrations yet.</p>}
+    {events.length ? <><CommittedEventTable base={base} events={events} /><Pager page={page} /></> : <p className="list-state">{hide ? 'No committed events remain with rollback pairs hidden.' : 'No committed migrations yet.'}</p>}
     <h2>Activity (including failed attempts)</h2>
     {activity.isError && <FormError error={activity.error} />}
-    {activity.data?.data.activity.length ? <ActivityTable base={base} activity={activity.data.data.activity} /> : <p>No activity recorded yet.</p>}
+    {activity.isPending ? <p className="list-state" role="status">Loading activity…</p> : activity.data?.data.activity.length ? <ActivityTable base={base} activity={activity.data.data.activity} /> : <p className="list-state">No activity recorded yet.</p>}
     {activity.data?.page && (activity.data.page.prev_offset !== null || activity.data.page.next_offset !== null) && <nav className="pager" aria-label="Activity pages">
-      {activity.data.page.prev_offset !== null && <button type="button" onClick={() => {
-        const next = new URLSearchParams(search);
-        next.set('activity_offset', String(activity.data!.page!.prev_offset));
-        navigate(`${base}/history?${next}`);
-      }}>Newer activity</button>}
-      {activity.data.page.next_offset !== null && <button type="button" onClick={() => {
-        const next = new URLSearchParams(search);
-        next.set('activity_offset', String(activity.data!.page!.next_offset));
-        navigate(`${base}/history?${next}`);
-      }}>Older activity</button>}
+      {activity.data.page.prev_offset !== null && <Link rel="prev" to={activityLink(activity.data.page.prev_offset)}>Newer activity</Link>}
+      {activity.data.page.next_offset !== null && <Link rel="next" to={activityLink(activity.data.page.next_offset)}>Older activity</Link>}
     </nav>}
     <p className="back"><Link to={`${base}/migrations`}>Legacy attempt history</Link></p>
   </Layout>;

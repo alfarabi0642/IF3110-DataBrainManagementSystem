@@ -110,4 +110,16 @@ describe('execution monitoring', () => {
     expect(html).toContain('Committed batches');
     expect(html).toContain('<code>10</code>');
   });
+
+  it('separates batch list loading and empty states from execution status', () => {
+    const batch: Execution = { ...execution, mode: 'batch', phase: 'running', committed_rows: '5', total_rows: '20' };
+    const loading = renderToStaticMarkup(<MemoryRouter><ExecutionDetail execution={batch} batchList={{ loading: true }} /></MemoryRouter>);
+    expect(loading).toContain('Loading committed batches');
+    expect(loading).toContain('The execution is running.');
+    expect(loading).toContain('<progress class="meter" max="1000" value="250"');
+    expect(loading).not.toContain('%');
+    const empty = renderToStaticMarkup(<MemoryRouter><ExecutionDetail execution={batch} batchList={{ batches: [] }} /></MemoryRouter>);
+    expect(empty).toContain('No batch has committed yet.');
+    expect(render(execution)).not.toContain('<progress');
+  });
 });

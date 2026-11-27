@@ -21,8 +21,8 @@ export type Probe = { ok: boolean; reason: string; server_version: number; laten
 export const status = (active: boolean) => active ? 'Active' : 'Inactive';
 export function LeaderState({ group }: { group: Group }) {
   return group.leader_id
-    ? <span>{group.leader_display_name || group.leader_username || group.leader_id}</span>
-    : <span className="badge">Repair needed</span>;
+    ? <span className="leader">{group.leader_display_name || group.leader_username || group.leader_id}</span>
+    : <span className="badge failed">Repair needed</span>;
 }
 export const text = (form: HTMLFormElement | null, name: string) => String(new FormData(form ?? undefined).get(name) ?? '');
 export const submit = (action: { isPending: boolean; mutate: () => void }) => (event: FormEvent<HTMLFormElement>) => {

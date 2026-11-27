@@ -1,8 +1,8 @@
 import { useRef } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Link, Navigate, useNavigate, useParams } from 'react-router';
-import { Failure, Layout } from '../../app/ui';
-import { apiFetch, ApiError } from '../../lib/api';
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router';
+import { Failure, Layout, Pager, type WorkspaceDatabase } from '../../app/ui';
+import { apiFetch, ApiError, type Page } from '../../lib/api';
 import type { Session } from '../../lib/session';
 import { FormError, State, utc, type SubmittedRequest } from '../migrations/shared';
 
@@ -66,51 +66,72 @@ function actionLabel(action: string) {
   return action;
 }
 
+// Rasio progres dihitung dengan BigInt agar penghitung besar tidak kehilangan presisi.
+function progressPermille(committed: string, total: string | null): number | null {
+  if (total === null) return null;
+  try {
+    const t = BigInt(total);
+    if (t <= BigInt(0)) return null;
+    const c = BigInt(committed);
+    const value = c >= t ? BigInt(1000) : (c * BigInt(1000)) / t;
+    return Number(value);
+  } catch {
+    return null;
+  }
+}
+
+export type BatchList = {
+  batches?: ExecutionBatch[];
+  page?: Page;
+  loading?: boolean;
+  error?: unknown;
+};
+
 export function ExecutionDetail({
   execution,
   batches,
+  batchList,
   onRecover,
   recoverPending,
   recoverError,
 }: {
   execution: Execution;
   batches?: ExecutionBatch[];
+  batchList?: BatchList;
   onRecover?: (action: 'resume' | 'compensate') => void;
   recoverPending?: boolean;
   recoverError?: unknown;
 }) {
   const state = execution.outcome ?? execution.phase;
+  const permille = progressPermille(execution.committed_rows, execution.total_rows);
+  const list: BatchList = batchList ?? { batches };
+  const base = `/databases/${encodeURIComponent(execution.target_id)}`;
   return <>
     <p className={`status ${state}`} role="status">
       <State state={state} /> {statusText(execution)}
     </p>
-    <h2>Details</h2>
-    <dl className="meta">
-      <dt>Database</dt><dd><code>{execution.target_id}</code></dd>
-      <dt>Direction</dt><dd>{execution.direction}</dd>
-      <dt>Mode</dt><dd>{execution.mode}</dd>
-      <dt>Committed rows</dt><dd>{execution.committed_rows}</dd>
-      <dt>Committed batches</dt><dd>{execution.committed_batches}</dd>
-      {execution.total_rows !== null && <><dt>Total rows</dt><dd>{execution.total_rows}</dd></>}
-      {execution.has_partial_commits && <><dt>Partial commits</dt><dd>Yes</dd></>}
-      {execution.reconciliation_pending && <><dt>Reconciliation</dt><dd>Pending</dd></>}
-      <dt>Created</dt><dd>{`${utc(execution.created_at)} UTC`}</dd>
-      {execution.started_at && <><dt>Started</dt><dd>{`${utc(execution.started_at)} UTC`}</dd></>}
-      {execution.finished_at && <><dt>Finished</dt><dd>{`${utc(execution.finished_at)} UTC`}</dd></>}
-      {execution.failure && <>
-        <dt>Failure</dt><dd><code>{execution.failure.code}</code>{execution.failure.message ? ` ${execution.failure.message}` : ''}</dd>
-        {execution.failure.sqlstate && <><dt>SQLSTATE</dt><dd><code>{execution.failure.sqlstate}</code></dd></>}
-      </>}
-      <dt>Execution ID</dt><dd><code>{execution.id}</code></dd>
+    <dl className="figures">
+      <div><dt>Committed rows</dt><dd>{execution.committed_rows}</dd></div>
+      <div><dt>Committed batches</dt><dd>{execution.committed_batches}</dd></div>
+      {execution.total_rows !== null && <div><dt>Total rows</dt><dd>{execution.total_rows}</dd></div>}
     </dl>
+    {permille !== null && <progress className="meter" max={1000} value={permille} aria-label="Committed rows out of total rows" />}
+    {execution.failure && <>
+      <h2>Failure</h2>
+      <dl className="meta failure">
+        <dt>Code</dt><dd><code>{execution.failure.code}</code></dd>
+        {execution.failure.message && <><dt>Message</dt><dd>{execution.failure.message}</dd></>}
+        {execution.failure.sqlstate && <><dt>SQLSTATE</dt><dd><code>{execution.failure.sqlstate}</code></dd></>}
+      </dl>
+    </>}
     {execution.actions.length > 0 && <>
       <h2>Recovery actions</h2>
-      <p className="callout">Recovery creates a new approval request that requires every group leader to vote before execution.</p>
+      <p className="callout" data-kicker="APPROVAL">Recovery creates a new approval request that requires every group leader to vote before execution.</p>
       {recoverError ? <FormError error={recoverError} /> : null}
       <div className="actions">
         {execution.actions.map((item) => {
           const supported = item.action === 'resume' || item.action === 'compensate';
-          return <div key={item.action}>
+          return <div key={item.action} className="action-item">
             <button
               type="button"
               className={item.action === 'compensate' ? 'quiet' : 'execute'}
@@ -119,34 +140,54 @@ export function ExecutionDetail({
             >
               {actionLabel(item.action)}
             </button>
-            {!item.enabled && item.reason_code && <span className="muted">{' '}<code>{item.reason_code}</code></span>}
+            {!item.enabled && item.reason_code && <span className="muted"><code>{item.reason_code}</code></span>}
           </div>;
         })}
       </div>
     </>}
-    {execution.mode === 'batch' && batches && batches.length > 0 && <>
+    <h2>Details</h2>
+    <dl className="meta">
+      <dt>Database</dt><dd><code>{execution.target_id}</code></dd>
+      <dt>Direction</dt><dd>{execution.direction}</dd>
+      <dt>Mode</dt><dd>{execution.mode}</dd>
+      {execution.has_partial_commits && <><dt>Partial commits</dt><dd>Yes</dd></>}
+      {execution.reconciliation_pending && <><dt>Reconciliation</dt><dd>Pending</dd></>}
+      <dt>Created</dt><dd>{`${utc(execution.created_at)} UTC`}</dd>
+      {execution.started_at && <><dt>Started</dt><dd>{`${utc(execution.started_at)} UTC`}</dd></>}
+      {execution.finished_at && <><dt>Finished</dt><dd>{`${utc(execution.finished_at)} UTC`}</dd></>}
+      <dt>Execution ID</dt><dd><code>{execution.id}</code></dd>
+    </dl>
+    {execution.mode === 'batch' && <>
       <h2>Committed batches</h2>
-      <table className="data">
-        <thead>
-          <tr><th>Batch</th><th>Direction</th><th>Rows</th><th>Cursor end</th><th>Committed (UTC)</th></tr>
-        </thead>
-        <tbody>
-          {batches.map((b) => (
-            <tr key={`${b.direction}-${b.batch_ordinal}`}>
-              <td>{b.batch_ordinal}</td>
-              <td>{b.direction}</td>
-              <td>{b.rows_affected}</td>
-              <td><code>{b.cursor_end ?? '—'}</code></td>
-              <td>{utc(b.committed_at)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {list.loading ? <p className="list-state" role="status">Loading committed batches…</p>
+        : list.error && !list.batches ? <FormError error={list.error} />
+        : list.batches && list.batches.length > 0 ? <>
+          {list.error ? <FormError error={list.error} /> : null}
+          <div className="table-wrap"><table>
+            <caption className="sr-only">Committed batch checkpoints</caption>
+            <thead>
+              <tr><th>Batch</th><th>Direction</th><th>Rows</th><th>Cursor end</th><th>Committed (UTC)</th></tr>
+            </thead>
+            <tbody>
+              {list.batches.map((b) => (
+                <tr key={`${b.direction}-${b.batch_ordinal}`}>
+                  <td>{b.batch_ordinal}</td>
+                  <td>{b.direction}</td>
+                  <td>{b.rows_affected}</td>
+                  <td><code>{b.cursor_end ?? '—'}</code></td>
+                  <td>{utc(b.committed_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+          <Pager page={list.page} />
+        </>
+        : <p className="list-state">No batch has committed yet.</p>}
     </>}
     <p className="back">
-      <Link to={`/databases/${encodeURIComponent(execution.target_id)}/history`}>Committed history</Link>
+      <Link to={`${base}/history`}>Committed history</Link>
       {' · '}
-      <Link to={`/databases/${encodeURIComponent(execution.target_id)}/requests`}>Review requests</Link>
+      <Link to={`${base}/requests`}>Review requests</Link>
       {' · '}
       <Link to="/databases">Back to databases</Link>
     </p>
@@ -155,6 +196,7 @@ export function ExecutionDetail({
 
 export function ExecutionPage({ session }: { session: Session }) {
   const navigate = useNavigate();
+  const { search } = useLocation();
   const { id = '', executionID = '' } = useParams();
   const path = `/api/databases/${encodeURIComponent(id)}/executions/${encodeURIComponent(executionID)}`;
   const keysRef = useRef<{ resume: string; compensate: string }>({
@@ -174,10 +216,14 @@ export function ExecutionPage({ session }: { session: Session }) {
     gcTime: 0,
   });
   const execution = query.data?.data;
+  // Halaman batch dibaca dari URL (?limit&offset) agar Next/Previous dan Back/Forward konsisten.
+  const params = new URLSearchParams(search);
+  const batchSearch = new URLSearchParams({ limit: params.get('limit') ?? '50', offset: params.get('offset') ?? '0' }).toString();
   const batchesQuery = useQuery({
-    queryKey: ['execution-batches', session.user?.id, id, executionID, execution?.committed_batches],
-    queryFn: ({ signal }) => apiFetch<{ batches: ExecutionBatch[] }>(`${path}/batches?limit=100&offset=0`, { signal }),
+    queryKey: ['execution-batches', session.user?.id, id, executionID, batchSearch, execution?.committed_batches],
+    queryFn: ({ signal }) => apiFetch<{ database?: WorkspaceDatabase; batches: ExecutionBatch[] }>(`${path}/batches?${batchSearch}`, { signal }),
     enabled: session.state === 'authenticated' && execution?.mode === 'batch',
+    placeholderData: (previous) => previous,
     gcTime: 0,
   });
   const recover = useMutation({
@@ -192,14 +238,19 @@ export function ExecutionPage({ session }: { session: Session }) {
     onSuccess: (result) => navigate(`/databases/${encodeURIComponent(id)}/requests/${encodeURIComponent(result.data.request.id)}`),
   });
   if (session.state !== 'authenticated') return <Navigate to="/login" replace />;
-  return <Layout session={session} title="Execution">
+  return <Layout session={session} database={batchesQuery.data?.data.database} title="Execution">
     {query.error && execution && <FormError error={query.error} />}
     {query.isPending ? <p className="page-intro" role="status">Loading…</p> :
       query.isError && !execution ? <Failure error={query.error} /> :
       execution ? (
         <ExecutionDetail
           execution={execution}
-          batches={batchesQuery.data?.data.batches}
+          batchList={{
+            batches: batchesQuery.data?.data.batches,
+            page: batchesQuery.data?.page,
+            loading: batchesQuery.isPending,
+            error: batchesQuery.error,
+          }}
           onRecover={(action) => { if (!recover.isPending) recover.mutate(action); }}
           recoverPending={recover.isPending}
           recoverError={recover.error}
