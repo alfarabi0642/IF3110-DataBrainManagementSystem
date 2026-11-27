@@ -3,6 +3,7 @@ package explorer
 import (
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -36,7 +37,25 @@ func TestExplorerSelection(t *testing.T) {
 			t.Fatal("server generated an invalid tab link")
 		}
 	}
-	if _, err := NewHandler(nil, nil, nil, nil); err == nil {
-		t.Fatal("handler accepted missing dependencies")
+}
+
+func explorerHref(path, schema, table, tab string, limit, offset int) string {
+	values := url.Values{}
+	if schema != "" {
+		values.Set("schema", schema)
 	}
+	if table != "" {
+		values.Set("table", table)
+		values.Set("tab", tab)
+	}
+	if tab == "data" {
+		values.Set("limit", strconv.Itoa(limit))
+		if offset > 0 {
+			values.Set("offset", strconv.Itoa(offset))
+		}
+	}
+	if len(values) == 0 {
+		return path
+	}
+	return path + "?" + values.Encode()
 }

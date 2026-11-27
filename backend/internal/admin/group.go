@@ -13,6 +13,60 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const groupColumns = `g.id::text,g.name,g.is_active,g.revision,coalesce(g.leader_id::text,''),
+    coalesce(u.username,''),coalesce(u.display_name,'')`
+const groupJoin = ` FROM databrain.groups g LEFT JOIN databrain.users u ON u.id=g.leader_id`
+
+func scanGroup(row pgx.Row) (GroupItem, error) {
+	var group GroupItem
+	var leader string
+	if err := row.Scan(&group.ID, &group.Name, &group.IsActive, &group.Revision, &leader,
+		&group.LeaderUsername, &group.LeaderDisplayName); err != nil {
+		return GroupItem{}, err
+	}
+	if leader != "" {
+		group.LeaderID = &leader
+	}
+	return group, nil
+}
+
+func (s *Service) ListGroups(ctx context.Context, actor access.Principal, limit, offset int) ([]GroupItem, bool, error) {
+	if err := s.authorizer.RequireAdmin(ctx, actor); err != nil {
+		return nil, false, err
+	}
+	if limit < 1 || limit > 200 || offset < 0 || offset > 100000 {
+		return nil, false, failure(problem.InvalidRequest)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	lease, err := platformdb.Acquire(ctx, s.pool)
+	if err != nil {
+		return nil, false, failure(problem.PlatformUnavailable)
+	}
+	defer lease.Release()
+	rows, err := lease.Query(ctx, `SELECT `+groupColumns+groupJoin+`
+	    ORDER BY g.name,g.id LIMIT $1 OFFSET $2`, limit+1, offset)
+	if err != nil {
+		return nil, false, failure(problem.PlatformUnavailable)
+	}
+	defer rows.Close()
+	items := make([]GroupItem, 0, limit)
+	for rows.Next() {
+		item, err := scanGroup(rows)
+		if err != nil {
+			return nil, false, failure(problem.PlatformUnavailable)
+		}
+		items = append(items, item)
+	}
+	if rows.Err() != nil {
+		return nil, false, failure(problem.PlatformUnavailable)
+	}
+	if len(items) > limit {
+		return items[:limit], true, nil
+	}
+	return items, false, nil
+}
+
 func (s *Service) Group(ctx context.Context, actor access.Principal, groupID uuid.UUID) (GroupItem, error) {
 	if err := s.authorizer.RequireAdmin(ctx, actor); err != nil {
 		return GroupItem{}, err
@@ -27,9 +81,7 @@ func (s *Service) Group(ctx context.Context, actor access.Principal, groupID uui
 		return GroupItem{}, failure(problem.PlatformUnavailable)
 	}
 	defer lease.Release()
-	var group GroupItem
-	err = lease.QueryRow(ctx, `SELECT id::text,name,is_active,revision FROM databrain.groups WHERE id=$1`, groupID).
-		Scan(&group.ID, &group.Name, &group.IsActive, &group.Revision)
+	group, err := scanGroup(lease.QueryRow(ctx, `SELECT `+groupColumns+groupJoin+` WHERE g.id=$1`, groupID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return GroupItem{}, ErrGroupNotFound
 	}
@@ -145,69 +197,65 @@ func (s *Service) EditGroup(ctx context.Context, actor access.Principal, groupID
 	if err != nil {
 		return false, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	lease, err := platformdb.Acquire(ctx, s.pool)
-	if err != nil {
-		return false, failure(problem.PlatformUnavailable)
-	}
-	defer lease.Release()
-	tx, err := lease.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
-	if err != nil {
-		return false, failure(problem.PlatformUnavailable)
-	}
-	defer rollback(tx)
-	if err := lockGuard(ctx, tx); err != nil {
-		return false, err
-	}
-	var currentName string
-	var active bool
-	var revision int64
-	err = tx.QueryRow(ctx, `SELECT name,is_active,revision FROM databrain.groups WHERE id=$1 FOR UPDATE`, groupID).
-		Scan(&currentName, &active, &revision)
-	missing := errors.Is(err, pgx.ErrNoRows)
-	if err != nil && !missing {
-		return false, failure(problem.PlatformUnavailable)
-	}
-	statusChanged := !missing && active != in.IsActive
-	members := []uuid.UUID(nil)
-	if statusChanged {
-		members, err = groupMemberIDs(ctx, tx, groupID)
+	var selfAffected bool
+	err = s.withGuardTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		var currentName string
+		var active bool
+		var revision int64
+		err := tx.QueryRow(ctx, `SELECT name,is_active,revision FROM databrain.groups WHERE id=$1 FOR UPDATE`, groupID).
+			Scan(&currentName, &active, &revision)
+		missing := errors.Is(err, pgx.ErrNoRows)
+		if err != nil && !missing {
+			return failure(problem.PlatformUnavailable)
+		}
+		statusChanged := !missing && active != in.IsActive
+		var members []uuid.UUID
+		if statusChanged {
+			members, err = groupMemberIDs(ctx, tx, groupID)
+			if err != nil {
+				return err
+			}
+		}
+		if err := lockUsersAndSessions(ctx, tx, actor, members); err != nil {
+			return err
+		}
+		if missing {
+			return ErrGroupNotFound
+		}
+		if revision != in.ExpectedRevision {
+			return ErrRevisionConflict
+		}
+		if currentName == name && !statusChanged {
+			return nil
+		}
+		if _, err := tx.Exec(ctx, `UPDATE databrain.groups SET name=$2,is_active=$3,
+		    revision=revision+1,updated_at=clock_timestamp() WHERE id=$1`, groupID, name, in.IsActive); err != nil {
+			return createError(err)
+		}
+		if statusChanged {
+			targets, err := groupGrantTargetIDs(ctx, tx, groupID)
+			if err != nil {
+				return err
+			}
+			if err := advancePolicyGenerations(ctx, tx, targets); err != nil {
+				return err
+			}
+		}
+		if statusChanged && in.IsActive {
+			err = s.sessions.ReauthenticateUsers(ctx, tx, members)
+		} else if statusChanged {
+			err = s.sessions.RevokeUsers(ctx, tx, members)
+		}
 		if err != nil {
-			return false, err
+			return err
 		}
-	}
-	if err := lockUsersAndSessions(ctx, tx, actor, members); err != nil {
-		return false, err
-	}
-	if missing {
-		return false, ErrGroupNotFound
-	}
-	if revision != in.ExpectedRevision {
-		return false, ErrRevisionConflict
-	}
-	if currentName == name && !statusChanged {
-		if err := tx.Commit(ctx); err != nil {
-			return false, failure(problem.PlatformUnavailable)
-		}
-		return false, nil
-	}
-	if _, err := tx.Exec(ctx, `UPDATE databrain.groups SET name=$2,is_active=$3,
-	    revision=revision+1,updated_at=clock_timestamp() WHERE id=$1`, groupID, name, in.IsActive); err != nil {
-		return false, createError(err)
-	}
-	if statusChanged && in.IsActive {
-		err = s.sessions.ReauthenticateUsers(ctx, tx, members)
-	} else if statusChanged {
-		err = s.sessions.RevokeUsers(ctx, tx, members)
-	}
+		selfAffected = statusChanged && slices.Contains(members, actor.UserID)
+		return nil
+	})
 	if err != nil {
 		return false, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return false, failure(problem.PlatformUnavailable)
-	}
-	return statusChanged && slices.Contains(members, actor.UserID), nil
+	return selfAffected, nil
 }
 
 func groupMemberIDs(ctx context.Context, tx pgx.Tx, groupID uuid.UUID) ([]uuid.UUID, error) {
@@ -220,4 +268,78 @@ func groupMemberIDs(ctx context.Context, tx pgx.Tx, groupID uuid.UUID) ([]uuid.U
 		return nil, failure(problem.PlatformUnavailable)
 	}
 	return ids, nil
+}
+
+// Assigning a leader to a group (new feature)
+// AssignLeader mengganti leader hanya dengan member aktif dan revision yang diharapkan. Perubahan
+// menaikkan revision group dan generasi policy seluruh target yang memakai group ini.
+func (s *Service) AssignLeader(ctx context.Context, actor access.Principal, groupID, userID uuid.UUID, expectedRevision int64) (GroupItem, error) {
+	if err := s.authorizer.RequireAdmin(ctx, actor); err != nil {
+		return GroupItem{}, err
+	}
+	if groupID == uuid.Nil || userID == uuid.Nil || expectedRevision < 1 {
+		return GroupItem{}, failure(problem.InvalidRequest)
+	}
+	var group GroupItem
+	err := s.withGuardTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		var revision int64
+		var leader string
+		err := tx.QueryRow(ctx, `SELECT revision,coalesce(leader_id::text,'') FROM databrain.groups
+		    WHERE id=$1 FOR UPDATE`, groupID).Scan(&revision, &leader)
+		missing := errors.Is(err, pgx.ErrNoRows)
+		if err != nil && !missing {
+			return failure(problem.PlatformUnavailable)
+		}
+		if missing {
+			return ErrGroupNotFound
+		}
+		if revision != expectedRevision {
+			return ErrRevisionConflict
+		}
+		if err := lockUsersAndSessions(ctx, tx, actor, []uuid.UUID{userID}); err != nil {
+			return err
+		}
+		if leader == userID.String() {
+			group, err = scanGroup(tx.QueryRow(ctx, `SELECT `+groupColumns+groupJoin+` WHERE g.id=$1`, groupID))
+			if err != nil {
+				return failure(problem.PlatformUnavailable)
+			}
+			return nil
+		}
+		var userActive bool
+		if err := tx.QueryRow(ctx, `SELECT is_active FROM databrain.users WHERE id=$1`, userID).Scan(&userActive); err != nil {
+			return failure(problem.PlatformUnavailable)
+		}
+		if !userActive {
+			return validationFailed()
+		}
+		var member bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM databrain.memberships
+		    WHERE group_id=$1 AND user_id=$2)`, groupID, userID).Scan(&member); err != nil {
+			return failure(problem.PlatformUnavailable)
+		}
+		if !member {
+			return validationFailed()
+		}
+		targets, err := groupGrantTargetIDs(ctx, tx, groupID)
+		if err != nil {
+			return err
+		}
+		if err := advancePolicyGenerations(ctx, tx, targets); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE databrain.groups SET leader_id=$2,revision=revision+1,
+		    updated_at=clock_timestamp() WHERE id=$1`, groupID, userID); err != nil {
+			return failure(problem.PlatformUnavailable)
+		}
+		group, err = scanGroup(tx.QueryRow(ctx, `SELECT `+groupColumns+groupJoin+` WHERE g.id=$1`, groupID))
+		if err != nil {
+			return failure(problem.PlatformUnavailable)
+		}
+		return nil
+	})
+	if err != nil {
+		return GroupItem{}, err
+	}
+	return group, nil
 }

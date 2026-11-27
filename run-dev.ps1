@@ -1,5 +1,8 @@
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
+if ($env:DATABRAIN_DATABASE_MODE -eq 'existing' -and -not $env:APP_SECRET_KEY) {
+    throw 'Mode existing memerlukan APP_SECRET_KEY yang sama dengan instalasi sebelumnya.'
+}
 function Invoke-Checked {
     param([string]$Command, [string[]]$Arguments)
     & $Command @Arguments
@@ -23,19 +26,31 @@ foreach ($entry in @{
     }
 }
 $env:APP_ENV = 'development'
-$env:APP_ORIGIN = "http://localhost:$env:DATABRAIN_HTTP_PORT"
+if (-not $env:APP_ORIGIN) { $env:APP_ORIGIN = "http://localhost:$env:DATABRAIN_HTTP_PORT" }
 $env:HTTP_ADDR = "127.0.0.1:$env:DATABRAIN_HTTP_PORT"
-$env:PLATFORM_DATABASE_URL = "postgres://databrain_runtime@127.0.0.1:$env:DATABRAIN_POSTGRES_PORT/databrain_dev?sslmode=disable"
-$env:PLATFORM_DATABASE_PASSWORD = $env:DATABRAIN_RUNTIME_PASSWORD
-$env:MIGRATOR_DATABASE_URL = "postgres://databrain_migrator@127.0.0.1:$env:DATABRAIN_POSTGRES_PORT/databrain_dev?sslmode=disable"
-$env:MIGRATOR_DATABASE_PASSWORD = $env:DATABRAIN_MIGRATOR_PASSWORD
-# Compose sudah menginisialisasi role/database; setup.sql tidak dijalankan ulang.
-Invoke-Checked -Command docker -Arguments @('compose','-f','infra/compose.yaml','stop','app')
-Invoke-Checked -Command docker -Arguments @('compose','-f','infra/compose.yaml','up','-d','--wait','postgres')
+if (-not $env:DATABRAIN_DATABASE_MODE) { $env:DATABRAIN_DATABASE_MODE = 'docker' }
+if ($env:DATABRAIN_DATABASE_MODE -notin @('docker','existing')) { throw 'DATABRAIN_DATABASE_MODE harus docker atau existing.' }
+if ($env:DATABRAIN_DATABASE_MODE -eq 'existing' -and (-not $env:PLATFORM_DATABASE_URL -or -not $env:MIGRATOR_DATABASE_URL)) {
+    throw 'Mode existing memerlukan PLATFORM_DATABASE_URL dan MIGRATOR_DATABASE_URL.'
+}
+Invoke-Checked -Command npm.cmd -Arguments @('--prefix','frontend','ci')
+Invoke-Checked -Command npm.cmd -Arguments @('--prefix','frontend','run','typecheck')
+Invoke-Checked -Command npm.cmd -Arguments @('--prefix','frontend','run','build')
+if ($env:DATABRAIN_DATABASE_MODE -eq 'docker') {
+    $env:PLATFORM_DATABASE_URL = "postgres://databrain_runtime@127.0.0.1:$env:DATABRAIN_POSTGRES_PORT/databrain_dev?sslmode=disable"
+    $env:PLATFORM_DATABASE_PASSWORD = $env:DATABRAIN_RUNTIME_PASSWORD
+    $env:MIGRATOR_DATABASE_URL = "postgres://databrain_migrator@127.0.0.1:$env:DATABRAIN_POSTGRES_PORT/databrain_dev?sslmode=disable"
+    $env:MIGRATOR_DATABASE_PASSWORD = $env:DATABRAIN_MIGRATOR_PASSWORD
+    # Compose hanya menginisialisasi volume kosong; upgrade tidak menjalankan setup.sql.
+    Invoke-Checked -Command docker -Arguments @('compose','-f','infra/compose.yaml','stop','app','worker')
+    Invoke-Checked -Command docker -Arguments @('compose','-f','infra/compose.yaml','up','-d','--wait','postgres')
+}
 New-Item -ItemType Directory -Force -Path .tmp | Out-Null
 Set-Location backend
+$env:CGO_ENABLED = '0'
 Invoke-Checked -Command go -Arguments @('build','-o','../.tmp/manage.exe','./cmd/manage')
 Invoke-Checked -Command go -Arguments @('build','-o','../.tmp/api.exe','./cmd/api')
+Invoke-Checked -Command go -Arguments @('build','-o','../.tmp/worker.exe','./cmd/worker')
 Invoke-Checked -Command ../.tmp/manage.exe -Arguments @('migrate','up')
 $passwordFile = [IO.Path]::GetTempFileName()
 try {
@@ -45,5 +60,13 @@ try {
 } finally {
     Remove-Item -LiteralPath $passwordFile -Force
 }
-Write-Output "DataBrain: $env:APP_ORIGIN (admin: $env:BOOTSTRAP_ADMIN_USERNAME)"
-Invoke-Checked -Command ../.tmp/api.exe -Arguments @()
+if (-not $env:WORKER_ADDR) { $env:WORKER_ADDR = '127.0.0.1:8081' }
+$worker = Start-Process -FilePath ../.tmp/worker.exe -NoNewWindow -PassThru
+try {
+    Write-Output "DataBrain: $env:APP_ORIGIN (admin: $env:BOOTSTRAP_ADMIN_USERNAME, worker: http://$env:WORKER_ADDR/healthz)"
+    Invoke-Checked -Command ../.tmp/api.exe -Arguments @()
+} finally {
+    if ($worker -and -not $worker.HasExited) {
+        Stop-Process -Id $worker.Id -ErrorAction SilentlyContinue
+    }
+}

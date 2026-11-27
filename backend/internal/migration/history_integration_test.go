@@ -1,4 +1,4 @@
-package migration
+package migration_test
 
 import (
 	"context"
@@ -10,6 +10,10 @@ import (
 	"testing"
 	"time"
 
+	. "github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/execstore"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/legacy"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/sqlpolicy"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,43 +24,45 @@ func TestAttemptHistoryPostgres(t *testing.T) {
 	ctx := context.Background()
 	// SQL valid pada batas ukuran hanya dibaca sebagai snapshot, tidak dijalankan.
 	prefix := " \r\n-- 猫 exact snapshot; <script>\r\nCREATE TABLE public.never_executed(id int);\r\n--"
-	sql := prefix + strings.Repeat("x", MaxSQLBytes-len(prefix)-3) + "\t\r\n"
+	sql := prefix + strings.Repeat("x", sqlpolicy.MaxSQLBytes-len(prefix)-3) + "\t\r\n"
 	d := attemptDraft(t, f, f.a, sql)
 	key := uuid.New()
-	first := mustReserve(t, s, f, d, ReserveInput{1, key})
+	first := mustReserve(t, s, f, d, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: key})
 	finishAttemptFixture(t, s, first, true)
 	secondDraft := attemptDraft(t, f, f.a, "CREATE TABLE public.also_not_executed(id int);")
-	second, err := s.Reserve(ctx, f.a, secondDraft.ID, f.otherActor, ReserveInput{1, key})
+	second, err := s.Reserve(ctx, f.a, secondDraft.ID, f.otherActor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: key})
 	if err != nil || !second.Created() {
 		t.Fatal("cannot create another actor's receipt using the same key")
 	}
-	if _, err := s.persistOutcome(ctx, second.Receipt, attemptOutcome{"failed", "not_started", &ExecutionFailure{Code: "SQL_ERROR", Message: "PRIVATE_SQL_DSN", SQLState: "23505", StatementIndex: 2}}); err != nil {
+	if _, err := s.PersistOutcome(ctx, second.Receipt, legacy.AttemptOutcome{State: "failed", Evidence: "not_started", Failure: &execstore.ExecutionFailure{Code: "SQL_ERROR", Message: "PRIVATE_SQL_DSN", SQLState: "23505", StatementIndex: 2}}); err != nil {
 		t.Fatal("cannot initialize failed history")
 	}
-	if _, err := s.pool.Exec(ctx, `UPDATE databrain.migration_streams SET next_version=10 WHERE target_id=$1`, f.a); err != nil {
+	if _, err := s.Pool().Exec(ctx, `UPDATE databrain.migration_streams SET next_version=10 WHERE target_id=$1`, f.a); err != nil {
 		t.Fatal("cannot set this test's version gap")
 	}
-	third := mustReserve(t, s, f, secondDraft, ReserveInput{1, uuid.New()})
+	third := mustReserve(t, s, f, secondDraft, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()})
 	if _, err := s.Claim(ctx, third); err != nil {
 		t.Fatal("cannot claim history fixture")
 	}
-	if err := s.markCommit(ctx, third.Receipt); err != nil {
+	if err := s.MarkCommit(ctx, third.Receipt); err != nil {
 		t.Fatal("cannot initialize commit phase")
 	}
-	if _, err := s.persistOutcome(ctx, third.Receipt, uncertain("COMMIT_UNCERTAIN", "PRIVATE_UNKNOWN")); err != nil {
+	if _, err := s.PersistOutcome(ctx, third.Receipt, legacy.AttemptOutcome{State: "unknown", Failure: &execstore.ExecutionFailure{Code: "COMMIT_UNCERTAIN", Message: "PRIVATE_UNKNOWN"}}); err != nil {
 		t.Fatal("cannot initialize unknown history")
 	}
 	otherDraft := attemptDraft(t, f, f.b, "CREATE TABLE public.offline_never_executed(id int);")
-	other := mustReserve(t, s, f, otherDraft, ReserveInput{1, key})
+	other := mustReserve(t, s, f, otherDraft, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: key})
 
 	t.Run("snapshots ordering and bounded pagination", func(t *testing.T) {
-		if _, err := f.store.Save(ctx, f.a, d.ID, f.otherActor, SaveDraftInput{DraftInput{"New title", "changed draft SQL"}, 1}); err != nil {
-			t.Fatal("cannot change current draft")
+		if _, err := f.store.Save(ctx, f.a, d.ID, f.otherActor, SaveDraftInput{DraftInput: DraftInput{Title: "New title", SQL: "changed draft SQL"}, ExpectedRevision: 1}); err == nil {
+			t.Fatal("frozen draft was changed")
+		} else {
+			RequireDraftCode(t, err, problem.DraftFrozen)
 		}
-		if _, err := s.pool.Exec(ctx, `UPDATE databrain.users SET display_name='New private profile' WHERE id=$1`, f.actor); err != nil {
+		if _, err := s.Pool().Exec(ctx, `UPDATE databrain.users SET display_name='New private profile' WHERE id=$1`, f.actor); err != nil {
 			t.Fatal("cannot change current profile")
 		}
-		if _, err := s.pool.Exec(ctx, `UPDATE databrain.database_targets SET name='New target name',config_revision=2 WHERE id=$1`, f.a); err != nil {
+		if _, err := s.Pool().Exec(ctx, `UPDATE databrain.database_targets SET name='New target name',config_revision=2 WHERE id=$1`, f.a); err != nil {
 			t.Fatal("cannot change current display metadata")
 		}
 		got, err := s.Get(ctx, f.a, first.Receipt.ID)
@@ -87,7 +93,7 @@ func TestAttemptHistoryPostgres(t *testing.T) {
 		}
 	})
 	t.Run("receipt actor and target isolation with detail scope", func(t *testing.T) {
-		for _, want := range []AttemptReceipt{first.Receipt, second.Receipt, other.Receipt} {
+		for _, want := range []legacy.AttemptReceipt{first.Receipt, second.Receipt, other.Receipt} {
 			found, err := s.Receipt(ctx, want.TargetID, want.ActorID, key)
 			if err != nil || found == nil || found.ID != want.ID || found.DraftRevision != 1 {
 				t.Fatal("same key did not identify the correct actor and target")
@@ -126,11 +132,11 @@ func TestAttemptHistoryPostgres(t *testing.T) {
 		if err != nil || resolved == nil || resolved.State != "failed" || resolved.ResolvedAt == nil || resolved.ResolvedAt.Location() != time.UTC || resolved.FirstUnknownAt == nil || !resolved.FirstUnknownAt.Equal(*unknown.FirstUnknownAt) || resolved.ResolutionSummary != "An operator verified that the migration did not commit." || strings.Contains(fmt.Sprintf("%+v", resolved), "PRIVATE") {
 			t.Fatal("operator rollback summary leaked private data or lost uncertainty history")
 		}
-		if _, err := s.pool.Exec(ctx, `UPDATE databrain.migration_streams SET next_version=9007199254740993 WHERE target_id=$1`, f.a); err != nil {
+		if _, err := s.Pool().Exec(ctx, `UPDATE databrain.migration_streams SET next_version=9007199254740993 WHERE target_id=$1`, f.a); err != nil {
 			t.Fatal("cannot initialize large history version")
 		}
-		r := mustReserve(t, s, f, secondDraft, ReserveInput{1, uuid.New()})
-		if _, err := s.persistOutcome(ctx, r.Receipt, uncertain("PROCESS_INTERRUPTED", "PRIVATE_PROCESS")); err != nil {
+		r := mustReserve(t, s, f, secondDraft, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()})
+		if _, err := s.PersistOutcome(ctx, r.Receipt, legacy.AttemptOutcome{State: "unknown", Failure: &execstore.ExecutionFailure{Code: "PROCESS_INTERRUPTED", Message: "PRIVATE_PROCESS"}}); err != nil {
 			t.Fatal("cannot initialize interrupted fixture")
 		}
 		resolveHistoryFixture(t, s, r.Receipt, true)
@@ -152,14 +158,14 @@ func TestAttemptHistoryPostgres(t *testing.T) {
 	})
 	t.Run("read only refresh cancellation and cleanup", func(t *testing.T) {
 		before := historyStateFixture(t, s)
-		cfg := s.pool.Config()
+		cfg := s.Pool().Config()
 		cfg.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
 		pool, err := pgxpool.NewWithConfig(ctx, cfg)
 		if err != nil {
 			t.Fatal("cannot open read-only platform pool")
 		}
 		defer pool.Close()
-		reader := NewAttemptStore(pool)
+		reader := legacy.NewAttemptStore(pool)
 		for range 2 {
 			if _, _, err := reader.List(ctx, f.a, 50, 0); err != nil {
 				t.Fatal("history list attempted a write")
@@ -174,10 +180,10 @@ func TestAttemptHistoryPostgres(t *testing.T) {
 		canceled, stop := context.WithCancel(ctx)
 		stop()
 		_, _, err = reader.List(canceled, f.a, 50, 0)
-		requireDraftCode(t, err, problem.PlatformUnavailable)
+		RequireDraftCode(t, err, problem.PlatformUnavailable)
 		_, err = reader.Get(canceled, f.a, first.Receipt.ID)
-		requireDraftCode(t, err, problem.PlatformUnavailable)
-		if !reflect.DeepEqual(before, historyStateFixture(t, s)) || pool.Stat().AcquiredConns() != 0 || s.pool.Stat().AcquiredConns() != 0 {
+		RequireDraftCode(t, err, problem.PlatformUnavailable)
+		if !reflect.DeepEqual(before, historyStateFixture(t, s)) || pool.Stat().AcquiredConns() != 0 || s.Pool().Stat().AcquiredConns() != 0 {
 			t.Fatal("read/refresh changed attempts or streams, or leaked a lease")
 		}
 		var marker string
@@ -191,13 +197,13 @@ func TestAttemptHistoryPostgres(t *testing.T) {
 	})
 }
 
-func resolveHistoryFixture(t *testing.T, s *AttemptStore, r AttemptReceipt, success bool) {
+func resolveHistoryFixture(t *testing.T, s *legacy.AttemptStore, r legacy.AttemptReceipt, success bool) {
 	t.Helper()
-	tx, err := s.pool.Begin(context.Background())
+	tx, err := s.Pool().Begin(context.Background())
 	if err != nil {
 		t.Fatal("cannot begin resolution fixture")
 	}
-	defer rollbackAttempt(tx)
+	defer legacy.RollbackAttempt(tx)
 	state, evidence := "failed", "operator_rollback"
 	if success {
 		state, evidence = "succeeded", "operator_commit"
@@ -214,12 +220,12 @@ func resolveHistoryFixture(t *testing.T, s *AttemptStore, r AttemptReceipt, succ
 	}
 }
 
-func historyStateFixture(t *testing.T, s *AttemptStore) [2]string {
+func historyStateFixture(t *testing.T, s *legacy.AttemptStore) [2]string {
 	t.Helper()
 	var state [2]string
 	for i, table := range []string{"migration_attempts", "migration_streams"} {
 		// Nama tabel berupa konstanta test; data privat tetap di memori.
-		if err := s.pool.QueryRow(context.Background(), `SELECT jsonb_agg(to_jsonb(a))::text FROM (SELECT * FROM databrain.`+table+` ORDER BY target_id`+[]string{`,version`, ``}[i]+`) a`).Scan(&state[i]); err != nil {
+		if err := s.Pool().QueryRow(context.Background(), `SELECT jsonb_agg(to_jsonb(a))::text FROM (SELECT * FROM databrain.`+table+` ORDER BY target_id`+[]string{`,version`, ``}[i]+`) a`).Scan(&state[i]); err != nil {
 			t.Fatal("cannot inspect isolated history state")
 		}
 	}

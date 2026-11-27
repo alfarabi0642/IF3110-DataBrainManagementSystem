@@ -1,4 +1,4 @@
-package migration
+package migration_test
 
 import (
 	"bytes"
@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	. "github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/legacy"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/problem"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -18,25 +20,25 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func newAttemptFixture(t *testing.T) (draftFixture, *AttemptStore) {
+func newAttemptFixture(t *testing.T) (draftFixture, *legacy.AttemptStore) {
 	t.Helper()
 	f := newDraftFixture(t)
-	if _, err := f.store.pool.Exec(context.Background(), `INSERT INTO databrain.migration_streams(target_id) VALUES ($1),($2)`, f.a, f.b); err != nil {
+	if _, err := f.store.Pool().Exec(context.Background(), `INSERT INTO databrain.migration_streams(target_id) VALUES ($1),($2)`, f.a, f.b); err != nil {
 		t.Fatal("cannot initialize isolated streams")
 	}
-	return f, NewAttemptStore(f.store.pool)
+	return f, legacy.NewAttemptStore(f.store.Pool())
 }
 
 func attemptDraft(t *testing.T, f draftFixture, target uuid.UUID, sql string) Draft {
 	t.Helper()
-	d, err := f.store.Create(context.Background(), target, f.actor, DraftInput{"  Perubahan 猫 \t", sql})
+	d, err := f.store.Create(context.Background(), target, f.actor, DraftInput{Title: "  Perubahan 猫 \t", SQL: sql})
 	if err != nil {
 		t.Fatal("cannot create test draft")
 	}
 	return d
 }
 
-func mustReserve(t *testing.T, s *AttemptStore, f draftFixture, d Draft, input ReserveInput) Reservation {
+func mustReserve(t *testing.T, s *legacy.AttemptStore, f draftFixture, d Draft, input legacy.ReserveInput) legacy.Reservation {
 	t.Helper()
 	r, err := s.Reserve(context.Background(), d.TargetID, d.ID, f.actor, input)
 	if err != nil || !r.Created() || r.Receipt.ID == uuid.Nil || r.Receipt.State != "reserved" {
@@ -46,14 +48,14 @@ func mustReserve(t *testing.T, s *AttemptStore, f draftFixture, d Draft, input R
 }
 
 // Fixture hasil menguji urutan reservasi dengan metadata platform saja, tanpa SQL target.
-func finishAttemptFixture(t *testing.T, s *AttemptStore, r Reservation, success bool) {
+func finishAttemptFixture(t *testing.T, s *legacy.AttemptStore, r legacy.Reservation, success bool) {
 	t.Helper()
 	ctx := context.Background()
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.Pool().Begin(ctx)
 	if err != nil {
 		t.Fatal("cannot begin outcome fixture")
 	}
-	defer rollbackAttempt(tx)
+	defer legacy.RollbackAttempt(tx)
 	if success {
 		_, err = tx.Exec(ctx, `UPDATE databrain.migration_attempts SET state='running',started_at=now() WHERE id=$1 AND state='reserved';`, r.Receipt.ID)
 		if err == nil {
@@ -75,7 +77,7 @@ func TestAttemptStorePostgres(t *testing.T) {
 	ctx := context.Background()
 	sql := " \r\n-- 猫 exact snapshot\r\nCREATE TABLE public.never_executed(id int);\r\nINSERT INTO public.draft_marker VALUES ('a;b'); \t\n"
 	d := attemptDraft(t, f, f.a, sql)
-	input := ReserveInput{1, uuid.New()}
+	input := legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()}
 	r := mustReserve(t, s, f, d, input)
 	if r.Receipt.Version != "1" || r.Receipt.DraftID != d.ID || r.Receipt.DraftRevision != 1 || r.Receipt.ActorID != f.actor || r.Receipt.RequestKey != input.RequestKey {
 		t.Fatal("receipt does not identify the stored request")
@@ -85,7 +87,7 @@ func TestAttemptStorePostgres(t *testing.T) {
 		var hash []byte
 		var config, next int64
 		var active uuid.UUID
-		err := s.pool.QueryRow(ctx, `SELECT a.title_snapshot,a.target_name_snapshot,a.executor_username_snapshot,
+		err := s.Pool().QueryRow(ctx, `SELECT a.title_snapshot,a.target_name_snapshot,a.executor_username_snapshot,
 		    a.sql_snapshot,a.sql_sha256,a.target_config_revision,s.next_version,s.active_attempt_id
 		    FROM databrain.migration_attempts a JOIN databrain.migration_streams s ON s.target_id=a.target_id WHERE a.id=$1`, r.Receipt.ID).
 			Scan(&title, &target, &username, &storedSQL, &hash, &config, &next, &active)
@@ -93,7 +95,7 @@ func TestAttemptStorePostgres(t *testing.T) {
 		if err != nil || title != d.Title || target != "Target A" || username != "draft_editor_a" || storedSQL != sql || !bytes.Equal(hash, wantHash[:]) || config != 1 || next != 2 || active != r.Receipt.ID {
 			t.Fatal("snapshot/version/stream was not stored atomically and exactly")
 		}
-		if _, err := s.pool.Exec(ctx, `UPDATE databrain.migration_attempts SET sql_snapshot='changed' WHERE id=$1`, r.Receipt.ID); err == nil {
+		if _, err := s.Pool().Exec(ctx, `UPDATE databrain.migration_attempts SET sql_snapshot='changed' WHERE id=$1`, r.Receipt.ID); err == nil {
 			t.Fatal("runtime changed immutable execution snapshot")
 		}
 	})
@@ -106,11 +108,11 @@ func TestAttemptStorePostgres(t *testing.T) {
 			draft uuid.UUID
 			rev   int64
 		}{{uuid.New(), 1}, {d.ID, 2}} {
-			_, err := s.Reserve(ctx, f.a, args.draft, f.actor, ReserveInput{args.rev, input.RequestKey})
-			requireDraftCode(t, err, problem.IdempotencyConflict)
+			_, err := s.Reserve(ctx, f.a, args.draft, f.actor, legacy.ReserveInput{ExpectedRevision: args.rev, RequestKey: input.RequestKey})
+			RequireDraftCode(t, err, problem.IdempotencyConflict)
 		}
 		_, err = s.Reserve(ctx, f.a, d.ID, f.otherActor, input)
-		requireDraftCode(t, err, problem.TargetBusy)
+		RequireDraftCode(t, err, problem.TargetBusy)
 		for _, ids := range [][2]uuid.UUID{{f.a, f.otherActor}, {f.b, f.actor}} {
 			found, err := s.Receipt(ctx, ids[0], ids[1], input.RequestKey)
 			if err != nil || found != nil {
@@ -122,7 +124,7 @@ func TestAttemptStorePostgres(t *testing.T) {
 		}
 	})
 	t.Run("only creator claims once despite copied or modified receipt", func(t *testing.T) {
-		if claimed, err := NewAttemptStore(s.pool).Claim(ctx, r); claimed || err != nil {
+		if claimed, err := legacy.NewAttemptStore(s.Pool()).Claim(ctx, r); claimed || err != nil {
 			t.Fatal("another store consumed the creator permit")
 		}
 		copy := r
@@ -136,17 +138,17 @@ func TestAttemptStorePostgres(t *testing.T) {
 		}
 		var state string
 		var started bool
-		if err := s.pool.QueryRow(ctx, `SELECT state,started_at IS NOT NULL FROM databrain.migration_attempts WHERE id=$1`, r.Receipt.ID).Scan(&state, &started); err != nil || state != "running" || !started {
+		if err := s.Pool().QueryRow(ctx, `SELECT state,started_at IS NOT NULL FROM databrain.migration_attempts WHERE id=$1`, r.Receipt.ID).Scan(&state, &started); err != nil || state != "running" || !started {
 			t.Fatal("claim did not persist running/start time on its original attempt")
 		}
 	})
 	finishAttemptFixture(t, s, r, true)
 	t.Run("database constraints independently enforce deduplication", func(t *testing.T) {
-		tx, err := s.pool.Begin(ctx)
+		tx, err := s.Pool().Begin(ctx)
 		if err != nil {
 			t.Fatal("cannot begin constraint checks")
 		}
-		defer rollbackAttempt(tx)
+		defer legacy.RollbackAttempt(tx)
 		clone := `INSERT INTO databrain.migration_attempts
 		    (id,target_id,draft_id,draft_revision,version,title_snapshot,target_name_snapshot,target_config_revision,
 		     sql_snapshot,sql_sha256,executor_id,executor_username_snapshot,request_key,state)
@@ -183,18 +185,16 @@ func TestAttemptStorePostgres(t *testing.T) {
 		}
 		denied(`SET CONSTRAINTS ALL IMMEDIATE`, "23503", "")
 	})
-	t.Run("old success stale revision and edited draft replay", func(t *testing.T) {
-		_, err := s.Reserve(ctx, f.a, d.ID, f.actor, ReserveInput{1, uuid.New()})
-		requireDraftCode(t, err, problem.DraftAlreadyExecuted)
-		changed, err := f.store.Save(ctx, f.a, d.ID, f.otherActor, SaveDraftInput{DraftInput{"New title", "invalid newest SQL"}, 1})
-		if err != nil || changed.Revision != 2 {
-			t.Fatal("cannot edit draft after reservation")
-		}
-		_, err = s.Reserve(ctx, f.a, d.ID, f.actor, ReserveInput{1, uuid.New()})
-		requireDraftCode(t, err, problem.RevisionConflict)
-		_, err = s.Reserve(ctx, f.a, d.ID, f.actor, ReserveInput{1 << 40, uuid.New()})
-		requireDraftCode(t, err, problem.RevisionConflict)
-		if _, err := s.pool.Exec(ctx, `UPDATE databrain.database_targets SET name='Renamed target',config_revision=2,is_active=false WHERE id=$1`, f.a); err != nil {
+	t.Run("old success replay keeps frozen draft snapshot", func(t *testing.T) {
+		_, err := s.Reserve(ctx, f.a, d.ID, f.actor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()})
+		RequireDraftCode(t, err, problem.DraftAlreadyExecuted)
+		_, err = f.store.Save(ctx, f.a, d.ID, f.otherActor, SaveDraftInput{DraftInput: DraftInput{Title: "New title", SQL: "invalid newest SQL"}, ExpectedRevision: 1})
+		RequireDraftCode(t, err, problem.DraftFrozen)
+		_, err = s.Reserve(ctx, f.a, d.ID, f.actor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()})
+		RequireDraftCode(t, err, problem.DraftAlreadyExecuted)
+		_, err = s.Reserve(ctx, f.a, d.ID, f.actor, legacy.ReserveInput{ExpectedRevision: 1 << 40, RequestKey: uuid.New()})
+		RequireDraftCode(t, err, problem.RevisionConflict)
+		if _, err := s.Pool().Exec(ctx, `UPDATE databrain.database_targets SET name='Renamed target',config_revision=2,is_active=false WHERE id=$1`, f.a); err != nil {
 			t.Fatal("cannot edit test target metadata")
 		}
 		replay, err := s.Reserve(ctx, f.a, d.ID, f.actor, input)
@@ -202,50 +202,50 @@ func TestAttemptStorePostgres(t *testing.T) {
 			t.Fatal("old key was checked after latest draft or inactive target")
 		}
 		var storedSQL, title, target string
-		if err := s.pool.QueryRow(ctx, `SELECT sql_snapshot,title_snapshot,target_name_snapshot FROM databrain.migration_attempts WHERE id=$1`, r.Receipt.ID).Scan(&storedSQL, &title, &target); err != nil || storedSQL != sql || title != d.Title || target != "Target A" {
+		if err := s.Pool().QueryRow(ctx, `SELECT sql_snapshot,title_snapshot,target_name_snapshot FROM databrain.migration_attempts WHERE id=$1`, r.Receipt.ID).Scan(&storedSQL, &title, &target); err != nil || storedSQL != sql || title != d.Title || target != "Target A" {
 			t.Fatal("later edits changed execution snapshot")
 		}
 	})
 	t.Run("new requests validate resource active target and SQL without reservation", func(t *testing.T) {
-		_, err := s.Reserve(ctx, f.a, d.ID, f.actor, ReserveInput{2, uuid.New()})
-		requireDraftCode(t, err, problem.DatabaseNotFound)
+		_, err := s.Reserve(ctx, f.a, d.ID, f.actor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()})
+		RequireDraftCode(t, err, problem.DatabaseNotFound)
 		for _, target := range []uuid.UUID{f.b, uuid.New()} {
-			_, err := s.Reserve(ctx, target, d.ID, f.actor, ReserveInput{1, uuid.New()})
+			_, err := s.Reserve(ctx, target, d.ID, f.actor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()})
 			want := problem.DraftNotFound
 			if target != f.b {
 				want = problem.DatabaseNotFound
 			}
-			requireDraftCode(t, err, want)
+			RequireDraftCode(t, err, want)
 		}
 		for _, tc := range []struct {
 			sql  string
 			code problem.Code
 		}{{"-- comment only", problem.SQLInvalid}, {"CREAT TABLE broken", problem.SQLInvalid}, {"BEGIN; CREATE TABLE x(id int); COMMIT;", problem.SQLUnsupported}} {
 			bad := attemptDraft(t, f, f.b, tc.sql)
-			_, err := s.Reserve(ctx, f.b, bad.ID, f.actor, ReserveInput{1, uuid.New()})
-			requireDraftCode(t, err, tc.code)
+			_, err := s.Reserve(ctx, f.b, bad.ID, f.actor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()})
+			RequireDraftCode(t, err, tc.code)
 		}
 		var next, count int
 		var idle bool
-		if err := s.pool.QueryRow(ctx, `SELECT next_version,active_attempt_id IS NULL,(SELECT count(*) FROM databrain.migration_attempts WHERE target_id=$1) FROM databrain.migration_streams WHERE target_id=$1`, f.b).Scan(&next, &idle, &count); err != nil || next != 1 || !idle || count != 0 {
+		if err := s.Pool().QueryRow(ctx, `SELECT next_version,active_attempt_id IS NULL,(SELECT count(*) FROM databrain.migration_attempts WHERE target_id=$1) FROM databrain.migration_streams WHERE target_id=$1`, f.b).Scan(&next, &idle, &count); err != nil || next != 1 || !idle || count != 0 {
 			t.Fatal("validation allocated a version or attempt")
 		}
 	})
 	t.Run("new revision and another actor may reserve with their own key scope", func(t *testing.T) {
-		if _, err := s.pool.Exec(ctx, `UPDATE databrain.database_targets SET is_active=true WHERE id=$1`, f.a); err != nil {
+		if _, err := s.Pool().Exec(ctx, `UPDATE databrain.database_targets SET is_active=true WHERE id=$1`, f.a); err != nil {
 			t.Fatal("cannot reactivate isolated target")
 		}
-		changed, err := f.store.Save(ctx, f.a, d.ID, f.otherActor, SaveDraftInput{DraftInput{"New title", "CREATE TABLE public.still_not_run(id int)"}, 2})
+		changed, err := f.store.Create(ctx, f.a, f.otherActor, DraftInput{Title: "New title", SQL: "CREATE TABLE public.still_not_run(id int)"})
 		if err != nil {
-			t.Fatal("cannot prepare new draft revision")
+			t.Fatal("cannot prepare corrected draft identity")
 		}
-		newer, err := s.Reserve(ctx, f.a, d.ID, f.otherActor, ReserveInput{changed.Revision, input.RequestKey})
-		if err != nil || !newer.Created() || newer.Receipt.Version != "2" || newer.Receipt.DraftRevision != 3 || newer.Receipt.ActorID != f.otherActor {
-			t.Fatal("new revision/actor was mistaken for old success or key")
+		newer, err := s.Reserve(ctx, f.a, changed.ID, f.otherActor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: input.RequestKey})
+		if err != nil || !newer.Created() || newer.Receipt.Version != "2" || newer.Receipt.DraftRevision != 1 || newer.Receipt.ActorID != f.otherActor {
+			t.Fatal("new draft identity/actor was mistaken for old success or key")
 		}
 		var config int
 		var username, target string
-		if err := s.pool.QueryRow(ctx, `SELECT target_config_revision,executor_username_snapshot,target_name_snapshot FROM databrain.migration_attempts WHERE target_id=$1 AND id=$2`, f.a, newer.Receipt.ID).Scan(&config, &username, &target); err != nil || config != 2 || username != "draft_editor_b" || target != "Renamed target" {
+		if err := s.Pool().QueryRow(ctx, `SELECT target_config_revision,executor_username_snapshot,target_name_snapshot FROM databrain.migration_attempts WHERE target_id=$1 AND id=$2`, f.a, newer.Receipt.ID).Scan(&config, &username, &target); err != nil || config != 2 || username != "draft_editor_b" || target != "Renamed target" {
 			t.Fatal("new reservation did not capture current actor/target configuration")
 		}
 		replay, err := s.Reserve(ctx, f.a, d.ID, f.actor, input)
@@ -256,24 +256,24 @@ func TestAttemptStorePostgres(t *testing.T) {
 	})
 	t.Run("failed retry advances version and unknown stays blocked", func(t *testing.T) {
 		db := attemptDraft(t, f, f.b, "CREATE TABLE public.not_run(id int)")
-		key := ReserveInput{1, input.RequestKey} // Key yang sama terpisah pada target lain.
+		key := legacy.ReserveInput{ExpectedRevision: 1, RequestKey: input.RequestKey} // Key yang sama terpisah pada target lain.
 		first := mustReserve(t, s, f, db, key)
 		finishAttemptFixture(t, s, first, false)
-		retry := mustReserve(t, s, f, db, ReserveInput{1, uuid.New()})
+		retry := mustReserve(t, s, f, db, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()})
 		if first.Receipt.Version != "1" || retry.Receipt.Version != "2" {
 			t.Fatal("failed reservation did not consume its version")
 		}
-		if _, err := s.pool.Exec(ctx, `UPDATE databrain.migration_attempts SET state='unknown',failure_code='PROCESS_INTERRUPTED',failure_message='Interrupted.' WHERE id=$1`, retry.Receipt.ID); err != nil {
+		if _, err := s.Pool().Exec(ctx, `UPDATE databrain.migration_attempts SET state='unknown',failure_code='PROCESS_INTERRUPTED',failure_message='Interrupted.' WHERE id=$1`, retry.Receipt.ID); err != nil {
 			t.Fatal("cannot create unknown outcome fixture")
 		}
 		claimed, err := s.Claim(ctx, retry)
 		if err != nil || claimed {
 			t.Fatal("unknown attempt was claimed")
 		}
-		_, err = s.Reserve(ctx, f.b, db.ID, f.actor, ReserveInput{1, uuid.New()})
-		requireDraftCode(t, err, problem.TargetBusy)
-		for _, old := range []Reservation{first, retry} {
-			replay, err := s.Reserve(ctx, f.b, db.ID, f.actor, ReserveInput{1, old.Receipt.RequestKey})
+		_, err = s.Reserve(ctx, f.b, db.ID, f.actor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()})
+		RequireDraftCode(t, err, problem.TargetBusy)
+		for _, old := range []legacy.Reservation{first, retry} {
+			replay, err := s.Reserve(ctx, f.b, db.ID, f.actor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: old.Receipt.RequestKey})
 			if err != nil || replay.Created() || replay.Receipt.ID != old.Receipt.ID {
 				t.Fatal("failed/unknown replay did not return old receipt")
 			}
@@ -288,7 +288,7 @@ func TestAttemptStorePostgres(t *testing.T) {
 		if err := f.target.QueryRow(ctx, `SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'`).Scan(&relations); err != nil || relations != 1 {
 			t.Fatal("reservation executed target SQL")
 		}
-		if s.pool.Stat().AcquiredConns() != 0 {
+		if s.Pool().Stat().AcquiredConns() != 0 {
 			t.Fatal("attempt store leaked platform leases")
 		}
 	})
@@ -326,7 +326,7 @@ func TestAttemptConcurrencyPostgres(t *testing.T) {
 	d := attemptDraft(t, f, f.a, "CREATE TABLE public.never_run(id int)")
 	db := attemptDraft(t, f, f.b, d.SQL)
 	type result struct {
-		r   Reservation
+		r   legacy.Reservation
 		err error
 	}
 	for _, sameKey := range []bool{true, false} {
@@ -335,11 +335,11 @@ func TestAttemptConcurrencyPostgres(t *testing.T) {
 			name = "same key"
 		}
 		t.Run(name, func(t *testing.T) {
-			lock, err := s.pool.Begin(ctx)
+			lock, err := s.Pool().Begin(ctx)
 			if err != nil {
 				t.Fatal("cannot begin barrier")
 			}
-			defer rollbackAttempt(lock)
+			defer legacy.RollbackAttempt(lock)
 			var pid int
 			if err := lock.QueryRow(ctx, `SELECT pg_backend_pid() FROM databrain.migration_streams WHERE target_id=$1 FOR UPDATE`, f.a).Scan(&pid); err != nil {
 				t.Fatal("cannot lock stream barrier")
@@ -348,7 +348,7 @@ func TestAttemptConcurrencyPostgres(t *testing.T) {
 			start, results := make(chan struct{}), make(chan result, 2)
 			pending := 2
 			defer func() {
-				rollbackAttempt(lock)
+				legacy.RollbackAttempt(lock)
 				if pending > 0 {
 					for range pending {
 						out := <-results
@@ -365,14 +365,14 @@ func TestAttemptConcurrencyPostgres(t *testing.T) {
 				}
 				go func() {
 					<-start
-					r, err := s.Reserve(ctx, f.a, d.ID, f.actor, ReserveInput{1, requestKey})
+					r, err := s.Reserve(ctx, f.a, d.ID, f.actor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: requestKey})
 					results <- result{r, err}
 				}()
 			}
 			close(start)
-			waitAttemptBlockers(t, s.pool, pid, 2)
+			waitAttemptBlockers(t, s.Pool(), pid, 2)
 			// Stream lain harus selesai saat stream A masih terkunci.
-			other, err := s.Reserve(ctx, f.b, db.ID, f.actor, ReserveInput{1, key})
+			other, err := s.Reserve(ctx, f.b, db.ID, f.actor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: key})
 			if err != nil || !other.Created() {
 				t.Fatal("target B waited for target A")
 			}
@@ -381,13 +381,13 @@ func TestAttemptConcurrencyPostgres(t *testing.T) {
 				t.Fatal("cannot release barrier")
 			}
 			created, replayed, busy := 0, 0, 0
-			var winner Reservation
+			var winner legacy.Reservation
 			var replayID uuid.UUID
 			for range 2 {
 				out := <-results
 				pending--
 				if out.err != nil {
-					requireDraftCode(t, out.err, problem.TargetBusy)
+					RequireDraftCode(t, out.err, problem.TargetBusy)
 					busy++
 				} else if out.r.Created() {
 					created++
@@ -422,31 +422,31 @@ func TestAttemptConcurrencyPostgres(t *testing.T) {
 		})
 	}
 	t.Run("cancellation and stream update failure roll back atomically", func(t *testing.T) {
-		lock, err := s.pool.Begin(ctx)
+		lock, err := s.Pool().Begin(ctx)
 		if err != nil {
 			t.Fatal("cannot begin cancellation barrier")
 		}
-		defer rollbackAttempt(lock)
+		defer legacy.RollbackAttempt(lock)
 		if _, err := lock.Exec(ctx, `SELECT target_id FROM databrain.migration_streams WHERE target_id=$1 FOR UPDATE`, f.a); err != nil {
 			t.Fatal("cannot lock stream")
 		}
 		canceled, stop := context.WithTimeout(ctx, 100*time.Millisecond)
 		defer stop()
 		key := uuid.New()
-		_, err = s.Reserve(canceled, f.a, d.ID, f.actor, ReserveInput{1, key})
-		requireDraftCode(t, err, problem.PlatformUnavailable)
-		rollbackAttempt(lock)
+		_, err = s.Reserve(canceled, f.a, d.ID, f.actor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: key})
+		RequireDraftCode(t, err, problem.PlatformUnavailable)
+		legacy.RollbackAttempt(lock)
 		if receipt, err := s.Receipt(ctx, f.a, f.actor, key); err != nil || receipt != nil {
 			t.Fatal("canceled reservation persisted")
 		}
-		if _, err := s.pool.Exec(ctx, `UPDATE databrain.migration_streams SET next_version=9223372036854775807 WHERE target_id=$1`, f.a); err != nil {
+		if _, err := s.Pool().Exec(ctx, `UPDATE databrain.migration_streams SET next_version=9223372036854775807 WHERE target_id=$1`, f.a); err != nil {
 			t.Fatal("cannot prepare overflow fixture")
 		}
-		_, err = s.Reserve(ctx, f.a, d.ID, f.actor, ReserveInput{1, key})
-		requireDraftCode(t, err, problem.PlatformUnavailable)
+		_, err = s.Reserve(ctx, f.a, d.ID, f.actor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: key})
+		RequireDraftCode(t, err, problem.PlatformUnavailable)
 		var next int64
 		var idle bool
-		if err := s.pool.QueryRow(ctx, `SELECT next_version,active_attempt_id IS NULL FROM databrain.migration_streams WHERE target_id=$1`, f.a).Scan(&next, &idle); err != nil || next != 9223372036854775807 || !idle {
+		if err := s.Pool().QueryRow(ctx, `SELECT next_version,active_attempt_id IS NULL FROM databrain.migration_streams WHERE target_id=$1`, f.a).Scan(&next, &idle); err != nil || next != 9223372036854775807 || !idle {
 			t.Fatal("failed stream update changed stream")
 		}
 		if receipt, err := s.Receipt(ctx, f.a, f.actor, key); err != nil || receipt != nil {
@@ -454,7 +454,7 @@ func TestAttemptConcurrencyPostgres(t *testing.T) {
 		}
 	})
 	var count int
-	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM databrain.migration_attempts WHERE target_id=$1`, f.a).Scan(&count); err != nil || count != 2 || s.pool.Stat().AcquiredConns() != 0 {
+	if err := s.Pool().QueryRow(ctx, `SELECT count(*) FROM databrain.migration_attempts WHERE target_id=$1`, f.a).Scan(&count); err != nil || count != 2 || s.Pool().Stat().AcquiredConns() != 0 {
 		t.Fatal("concurrency allocated extra attempts or leaked leases")
 	}
 }
@@ -487,7 +487,7 @@ func (*lostCommitAckTracer) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQ
 func TestAttemptCommitProofPostgres(t *testing.T) {
 	f, original := newAttemptFixture(t)
 	ctx := context.Background()
-	cfg := original.pool.Config()
+	cfg := original.Pool().Config()
 	tracer := &lostCommitAckTracer{}
 	cfg.ConnConfig.Tracer = tracer
 	cfg.ConnConfig.DialFunc = func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -502,15 +502,15 @@ func TestAttemptCommitProofPostgres(t *testing.T) {
 		t.Fatal("cannot open independent fault-test pool")
 	}
 	t.Cleanup(pool.Close)
-	s := NewAttemptStore(pool)
+	s := legacy.NewAttemptStore(pool)
 	d := attemptDraft(t, f, f.a, "CREATE TABLE public.never_run(id int)")
-	input := ReserveInput{1, uuid.New()}
+	input := legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()}
 	tracer.armed.Store(true)
 	r := mustReserve(t, s, f, d, input)
 	if tracer.armed.Load() {
 		t.Fatal("reservation COMMIT fault did not fire")
 	}
-	if claimed, err := s.recoverClaim(r.Receipt); claimed || err == nil {
+	if claimed, err := s.RecoverClaim(r.Receipt); claimed || err == nil {
 		t.Fatal("reserved receipt is not proof of running")
 	}
 	tracer.armed.Store(true)
@@ -521,12 +521,12 @@ func TestAttemptCommitProofPostgres(t *testing.T) {
 		t.Fatal("uncertain claim replayed")
 	}
 	finishAttemptFixture(t, s, r, false)
-	other, err := s.recoverReservation(f.a, d.ID, f.actor, input.RequestKey, uuid.New(), 1)
+	other, err := s.RecoverReservation(f.a, d.ID, f.actor, input.RequestKey, uuid.New(), 1)
 	if err != nil || other.Created() || other.Receipt.ID != r.Receipt.ID {
 		t.Fatal("existing receipt granted ownership to a different creator")
 	}
-	_, err = s.recoverReservation(f.a, d.ID, f.actor, uuid.New(), uuid.New(), 1)
-	requireDraftCode(t, err, problem.PlatformUnavailable)
+	_, err = s.RecoverReservation(f.a, d.ID, f.actor, uuid.New(), uuid.New(), 1)
+	RequireDraftCode(t, err, problem.PlatformUnavailable)
 
 	// Deferred trigger nyata menolak COMMIT setelah INSERT/UPDATE berhasil. Trigger hanya dipasang oleh
 	// owner pada database test terisolasi.
@@ -553,15 +553,15 @@ func TestAttemptCommitProofPostgres(t *testing.T) {
 		t.Fatal("cannot configure reservation rejection")
 	}
 	key := uuid.New()
-	_, err = s.Reserve(ctx, f.a, bad.ID, f.actor, ReserveInput{1, key})
-	requireDraftCode(t, err, problem.PlatformUnavailable)
+	_, err = s.Reserve(ctx, f.a, bad.ID, f.actor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: key})
+	RequireDraftCode(t, err, problem.PlatformUnavailable)
 	if receipt, err := s.Receipt(ctx, f.a, f.actor, key); err != nil || receipt != nil {
 		t.Fatal("failed commit left a receipt")
 	}
 	if _, err := pool.Exec(ctx, `UPDATE databrain.migration_drafts SET title='reject claim commit' WHERE id=$1`, bad.ID); err != nil {
 		t.Fatal("cannot configure claim rejection")
 	}
-	claim := mustReserve(t, s, f, bad, ReserveInput{1, key})
+	claim := mustReserve(t, s, f, bad, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: key})
 	if claim.Receipt.Version != "2" {
 		t.Fatal("rolled-back reservation consumed version")
 	}
@@ -569,7 +569,7 @@ func TestAttemptCommitProofPostgres(t *testing.T) {
 	if claimed {
 		t.Fatal("failed claim commit authorized SQL")
 	}
-	requireDraftCode(t, err, problem.PlatformUnavailable)
+	RequireDraftCode(t, err, problem.PlatformUnavailable)
 	stored, err := s.Receipt(ctx, f.a, f.actor, key)
 	if err != nil || stored == nil || stored.State != "reserved" {
 		t.Fatal("failed claim changed durable state")
@@ -578,9 +578,31 @@ func TestAttemptCommitProofPostgres(t *testing.T) {
 		t.Fatal("inconclusive claim permit was reused")
 	}
 	pool.Close()
-	_, err = s.recoverReservation(f.a, bad.ID, f.actor, key, claim.Receipt.ID, 1)
-	requireDraftCode(t, err, problem.PlatformUnavailable)
-	if claimed, err := s.recoverClaim(claim.Receipt); claimed || err == nil {
+	_, err = s.RecoverReservation(f.a, bad.ID, f.actor, key, claim.Receipt.ID, 1)
+	RequireDraftCode(t, err, problem.PlatformUnavailable)
+	if claimed, err := s.RecoverClaim(claim.Receipt); claimed || err == nil {
 		t.Fatal("unavailable proof authorized SQL")
+	}
+}
+
+func TestAttemptReserveRespectsExecutionGatePostgres(t *testing.T) {
+	f, s := newAttemptFixture(t)
+	ctx := context.Background()
+	execution := uuid.New()
+	if _, err := s.Pool().Exec(ctx, `INSERT INTO databrain.migration_executions
+	    (id,target_id,actor_id,request_id,definition_id,revision,target_config_revision,direction,mode,plan_hash,sql_snapshot)
+	    VALUES ($1,$2,$3,$4,$5,1,1,'apply','normal',repeat('0',64),'SELECT 1')`,
+		execution, f.a, f.actor, uuid.New(), uuid.New()); err != nil {
+		t.Fatal("cannot insert active execution fixture")
+	}
+	if _, err := s.Pool().Exec(ctx, "UPDATE databrain.migration_streams SET active_execution_id=$2 WHERE target_id=$1", f.a, execution); err != nil {
+		t.Fatal("cannot link active execution fixture")
+	}
+	d := attemptDraft(t, f, f.a, "CREATE TABLE public.execution_gate(id int)")
+	_, err := s.Reserve(ctx, f.a, d.ID, f.actor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()})
+	RequireDraftCode(t, err, problem.TargetBusy)
+	independent := attemptDraft(t, f, f.b, "CREATE TABLE public.independent_gate(id int)")
+	if _, err := s.Reserve(ctx, f.b, independent.ID, f.actor, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()}); err != nil {
+		t.Fatal("active execution on one target blocked an independent target")
 	}
 }

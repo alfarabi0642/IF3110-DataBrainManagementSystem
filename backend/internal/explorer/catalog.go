@@ -17,39 +17,39 @@ import (
 const (
 	maxDefinitionBytes = 64 << 10
 	maxMetadataBytes   = 4 << 20
-	userSchemaSQL      = `n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'`
+	userSchemaSQL      = `n.nspname !~ '^pg_' AND n.nspname NOT IN ('information_schema','databrain_runtime')`
 )
 
 type Table struct {
-	Schema string
-	Name   string
-	Kind   string // r: tabel biasa; p: tabel berpartisi.
+	Schema string `json:"schema"`
+	Name   string `json:"name"`
+	Kind   string `json:"kind"` // r: tabel biasa; p: tabel berpartisi.
 }
 
 type Column struct {
-	Ordinal   int
-	Name      string
-	Type      string
-	Nullable  bool
-	Default   *string // nil berarti tanpa ekspresi default.
-	Identity  string  // Kode PostgreSQL: a (always), d (by default), atau kosong.
-	Generated string  // Kode PostgreSQL: s (stored), atau kosong.
+	Ordinal   int     `json:"ordinal"`
+	Name      string  `json:"name"`
+	Type      string  `json:"type"`
+	Nullable  bool    `json:"nullable"`
+	Default   *string `json:"default"`   // nil berarti tanpa ekspresi default.
+	Identity  string  `json:"identity"`  // Kode PostgreSQL: a (always), d (by default), atau kosong.
+	Generated string  `json:"generated"` // Kode PostgreSQL: s (stored), atau kosong.
 }
 
 type Constraint struct {
-	Name       string
-	Kind       string // Kode contype PostgreSQL.
-	Columns    []string
-	Definition string
+	Name       string   `json:"name"`
+	Kind       string   `json:"kind"` // Kode contype PostgreSQL.
+	Columns    []string `json:"columns"`
+	Definition string   `json:"definition"`
 }
 
 type Index struct {
-	Name       string
-	Method     string
-	Unique     bool
-	Primary    bool
-	Valid      bool
-	Definition string
+	Name       string `json:"name"`
+	Method     string `json:"method"`
+	Unique     bool   `json:"unique"`
+	Primary    bool   `json:"primary"`
+	Valid      bool   `json:"valid"`
+	Definition string `json:"definition"`
 }
 
 // Catalog berisi schema, tabel, atau metadata satu tabel sesuai pilihan. Credential koneksi dan data
@@ -134,7 +134,7 @@ func validName(name string) bool {
 }
 
 func userSchema(name string) bool {
-	return name != "information_schema" && !strings.HasPrefix(name, "pg_")
+	return name != "information_schema" && name != "databrain_runtime" && !strings.HasPrefix(name, "pg_")
 }
 
 func readCatalog(ctx context.Context, tx pgx.Tx, schema, table string) (Catalog, error) {

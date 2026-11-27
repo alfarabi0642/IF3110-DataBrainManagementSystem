@@ -1,3 +1,4 @@
+// Package admin mengelola user, group, membership, dan grant platform.
 package admin
 
 import (
@@ -56,6 +57,32 @@ func rollback(tx pgx.Tx) {
 	_ = tx.Rollback(ctx)
 }
 
+func (s *Service) withGuardTx(ctx context.Context, fn func(context.Context, pgx.Tx) error) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	lease, err := platformdb.Acquire(ctx, s.pool)
+	if err != nil {
+		return failure(problem.PlatformUnavailable)
+	}
+	defer lease.Release()
+	tx, err := lease.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return failure(problem.PlatformUnavailable)
+	}
+	defer rollback(tx)
+	if err := lockGuard(ctx, tx); err != nil {
+		return err
+	}
+	if err := fn(ctx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return failure(problem.PlatformUnavailable)
+	}
+	return nil
+}
+
+// Creating User
 // CreateUser menghitung hash sebelum transaksi, lalu memeriksa ulang actor di bawah lock. Pembuatan
 // akun tidak mengubah privilege atau session user lain.
 func (s *Service) CreateUser(ctx context.Context, actor access.Principal, in CreateUserInput) (uuid.UUID, error) {
@@ -70,43 +97,37 @@ func (s *Service) CreateUser(ctx context.Context, actor access.Principal, in Cre
 	if err != nil {
 		return uuid.Nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	lease, err := platformdb.Acquire(ctx, s.pool)
+	var id uuid.UUID
+	err = s.withGuardTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		if err := lockUsersAndSessions(ctx, tx, actor, nil); err != nil {
+			return err
+		}
+		var count int
+		if err := tx.QueryRow(ctx, "SELECT count(*) FROM databrain.users").Scan(&count); err != nil {
+			return failure(problem.PlatformUnavailable)
+		}
+		if count >= 1000 {
+			return ErrPlatformLimitReached
+		}
+		var err error
+		id, err = uuid.NewRandom()
+		if err != nil {
+			return failure(problem.InternalError)
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO databrain.users(id,username,display_name,password_hash,is_platform_admin)
+		    VALUES ($1,$2,$3,$4,$5)`, id, in.Username, in.DisplayName, hash, in.IsPlatformAdmin)
+		if err != nil {
+			return createError(err)
+		}
+		return nil
+	})
 	if err != nil {
-		return uuid.Nil, failure(problem.PlatformUnavailable)
-	}
-	defer lease.Release()
-	tx, err := lease.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
-	if err != nil {
-		return uuid.Nil, failure(problem.PlatformUnavailable)
-	}
-	defer rollback(tx)
-	if err := lockAdmin(ctx, tx, actor); err != nil {
 		return uuid.Nil, err
-	}
-	var count int
-	if err := tx.QueryRow(ctx, "SELECT count(*) FROM databrain.users").Scan(&count); err != nil {
-		return uuid.Nil, failure(problem.PlatformUnavailable)
-	}
-	if count >= 1000 {
-		return uuid.Nil, ErrPlatformLimitReached
-	}
-	id, err := uuid.NewRandom()
-	if err != nil {
-		return uuid.Nil, failure(problem.InternalError)
-	}
-	_, err = tx.Exec(ctx, `INSERT INTO databrain.users(id,username,display_name,password_hash,is_platform_admin)
-	    VALUES ($1,$2,$3,$4,$5)`, id, in.Username, in.DisplayName, hash, in.IsPlatformAdmin)
-	if err != nil {
-		return uuid.Nil, createError(err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return uuid.Nil, failure(problem.PlatformUnavailable)
 	}
 	return id, nil
 }
 
+// Creating a group
 func (s *Service) CreateGroup(ctx context.Context, actor access.Principal, in CreateGroupInput) (uuid.UUID, error) {
 	if err := s.authorizer.RequireAdmin(ctx, actor); err != nil {
 		return uuid.Nil, err
@@ -115,47 +136,53 @@ func (s *Service) CreateGroup(ctx context.Context, actor access.Principal, in Cr
 	if err != nil {
 		return uuid.Nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	lease, err := platformdb.Acquire(ctx, s.pool)
+	var id uuid.UUID
+	err = s.withGuardTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		if err := lockUsersAndSessions(ctx, tx, actor, nil); err != nil {
+			return err
+		}
+		var count int
+		if err := tx.QueryRow(ctx, "SELECT count(*) FROM databrain.groups").Scan(&count); err != nil {
+			return failure(problem.PlatformUnavailable)
+		}
+		if count >= 100 {
+			return ErrPlatformLimitReached
+		}
+		var err error
+		id, err = uuid.NewRandom()
+		if err != nil {
+			return failure(problem.InternalError)
+		}
+		if in.LeaderID != uuid.Nil {
+			var leaderActive bool
+			err = tx.QueryRow(ctx, `SELECT is_active FROM databrain.users WHERE id=$1 FOR SHARE`, in.LeaderID).Scan(&leaderActive)
+			if errors.Is(err, pgx.ErrNoRows) || err == nil && !leaderActive {
+				return validationFailed()
+			}
+			if err != nil {
+				return failure(problem.PlatformUnavailable)
+			}
+		}
+		if _, err := tx.Exec(ctx, "INSERT INTO databrain.groups(id,name) VALUES ($1,$2)", id, name); err != nil {
+			return createError(err)
+		}
+		if in.LeaderID != uuid.Nil {
+			if _, err := tx.Exec(ctx, `INSERT INTO databrain.memberships(group_id,user_id) VALUES ($1,$2)`, id, in.LeaderID); err != nil {
+				return createError(err)
+			}
+			if _, err := tx.Exec(ctx, `UPDATE databrain.groups SET leader_id=$2 WHERE id=$1`, id, in.LeaderID); err != nil {
+				return createError(err)
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		return uuid.Nil, failure(problem.PlatformUnavailable)
-	}
-	defer lease.Release()
-	tx, err := lease.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
-	if err != nil {
-		return uuid.Nil, failure(problem.PlatformUnavailable)
-	}
-	defer rollback(tx)
-	if err := lockAdmin(ctx, tx, actor); err != nil {
 		return uuid.Nil, err
-	}
-	var count int
-	if err := tx.QueryRow(ctx, "SELECT count(*) FROM databrain.groups").Scan(&count); err != nil {
-		return uuid.Nil, failure(problem.PlatformUnavailable)
-	}
-	if count >= 100 {
-		return uuid.Nil, ErrPlatformLimitReached
-	}
-	id, err := uuid.NewRandom()
-	if err != nil {
-		return uuid.Nil, failure(problem.InternalError)
-	}
-	if _, err := tx.Exec(ctx, "INSERT INTO databrain.groups(id,name) VALUES ($1,$2)", id, name); err != nil {
-		return uuid.Nil, createError(err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return uuid.Nil, failure(problem.PlatformUnavailable)
 	}
 	return id, nil
 }
 
-func lockAdmin(ctx context.Context, tx pgx.Tx, actor access.Principal) error {
-	if err := lockGuard(ctx, tx); err != nil {
-		return err
-	}
-	return lockUsersAndSessions(ctx, tx, actor, nil)
-}
+// === Helper ===
 
 func lockGuard(ctx context.Context, tx pgx.Tx) error {
 	var guard bool

@@ -1,4 +1,4 @@
-package migration
+package migration_test
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/legacy"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -21,9 +22,9 @@ func TestRecoveryStartupAndCommandPostgres(t *testing.T) {
 	f, s := newAttemptFixture(t)
 	ctx := context.Background()
 	d := attemptDraft(t, f, f.a, `CREATE TABLE public.startup_must_not_run(id int)`)
-	r := mustReserve(t, s, f, d, ReserveInput{1, uuid.New()})
+	r := mustReserve(t, s, f, d, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()})
 	d2 := attemptDraft(t, f, f.b, d.SQL)
-	r2 := mustReserve(t, s, f, d2, ReserveInput{1, uuid.New()})
+	r2 := mustReserve(t, s, f, d2, legacy.ReserveInput{ExpectedRevision: 1, RequestKey: uuid.New()})
 	if ok, err := s.Claim(ctx, r2); err != nil || !ok {
 		t.Fatal("cannot initialize running startup orphan")
 	}
@@ -35,14 +36,21 @@ func TestRecoveryStartupAndCommandPostgres(t *testing.T) {
 	}
 	defer closeDraftTestConn(owner)
 	runtimeURL := f.db.Pool.Config().ConnString()
-	module, _ := filepath.Abs("../..")
+	module, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal("cannot locate backend source", err)
+	}
 	dir := t.TempDir()
+	spa := t.TempDir()
+	if err := os.WriteFile(filepath.Join(spa, "index.html"), []byte("<!doctype html><title>Startup recovery test</title>"), 0600); err != nil {
+		t.Fatal("cannot create SPA fixture", err)
+	}
 	api, manage := filepath.Join(dir, "api.exe"), filepath.Join(dir, "manage.exe")
 	for target, pkg := range map[string]string{api: "./cmd/api", manage: "./cmd/manage"} {
-		build := exec.Command("go", "build", "-o", target, pkg)
+		build := exec.Command("go", "build", "-buildvcs=false", "-o", target, pkg)
 		build.Dir = module
-		if err := build.Run(); err != nil {
-			t.Fatal("cannot build actual startup/maintenance commands")
+		if output, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("cannot build %s: %v\n%s", pkg, err, output)
 		}
 	}
 	if err := f.db.Close(ctx); err != nil {
@@ -56,6 +64,7 @@ func TestRecoveryStartupAndCommandPostgres(t *testing.T) {
 	_ = port.Close()
 	env := append(os.Environ(), "APP_ENV=test", "PLATFORM_DATABASE_URL="+runtimeURL,
 		"HTTP_ADDR="+address, "APP_ORIGIN=http://"+address, "TARGET_ALLOWED_HOSTS=127.0.0.1",
+		"SPA_DIR="+spa,
 		"APP_SECRET_KEY="+base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x84}, 32)))
 	server := exec.Command(api)
 	server.Dir, server.Env = module, env
@@ -88,6 +97,20 @@ func TestRecoveryStartupAndCommandPostgres(t *testing.T) {
 	var unknown int
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM databrain.migration_attempts WHERE state='unknown' AND first_unknown_at IS NOT NULL`).Scan(&unknown); err != nil || unknown != 2 {
 		t.Fatal("API accepted traffic before recovering both orphan states")
+	}
+	secondCtx, stopSecond := context.WithTimeout(ctx, 10*time.Second)
+	defer stopSecond()
+	secondPort, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal("cannot reserve second server address")
+	}
+	secondAddress := secondPort.Addr().String()
+	_ = secondPort.Close()
+	second := exec.CommandContext(secondCtx, api)
+	second.Dir = module
+	second.Env = append(append([]string{}, env...), "HTTP_ADDR="+secondAddress)
+	if output, err := second.CombinedOutput(); err == nil || secondCtx.Err() != nil || !strings.Contains(string(output), "another server holds the platform process lock") {
+		t.Fatal("second API process was not rejected by the process lock")
 	}
 	evidence := filepath.Join(dir, "evidence.txt")
 	const private = "PRIVATE_OPERATOR_EVIDENCE\r\nTest reservation and target inspection confirm no SQL started.\n"

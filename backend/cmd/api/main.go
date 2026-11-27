@@ -18,15 +18,19 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/explorer"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/httpx"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/httpapi"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/migration/legacy"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/platformdb"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/secret"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/targets"
+	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/telemetry"
 )
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logger := telemetry.NewLogger(telemetry.ServiceAPI)
+	slog.SetDefault(logger)
 	if err := run(logger); err != nil {
-		// Pesan konfigurasi hanya menyebut field dan aturan; detail jaringan tetap privat.
+		// Pesan konfigurasi hanya menyebut field dan aturan
 		logger.Error("HTTP server stopped", "code", "HTTP_SERVER_FAILED")
 		os.Exit(1)
 	}
@@ -41,11 +45,17 @@ func run(logger *slog.Logger) (err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	renderer, err := httpx.LoadTemplates("web/templates")
-	if err != nil {
-		logger.Error("unable to load HTML templates")
-		return err
+	tracer, tracerErr := telemetry.NewTracerProvider(telemetry.ServiceAPI, logger)
+	if tracerErr != nil {
+		logger.Error("telemetry initialization failed", "code", "TELEMETRY_INIT_FAILED")
+	} else {
+		defer func() {
+			if shutdownErr := telemetry.Shutdown(tracer); shutdownErr != nil {
+				logger.Error("telemetry shutdown incomplete", "code", "TELEMETRY_SHUTDOWN_FAILED")
+			}
+		}()
 	}
+
 	key, err := config.LoadSecretKey()
 	if err != nil {
 		logger.Error("invalid application secret configuration")
@@ -80,7 +90,7 @@ func run(logger *slog.Logger) (err error) {
 			}
 		}
 	}()
-	if _, err := migration.RecoverInterrupted(ctx, db); err != nil {
+	if _, err := legacy.RecoverInterrupted(ctx, db); err != nil {
 		logger.Error("migration startup recovery failed; HTTP not started")
 		return err
 	}
@@ -99,61 +109,60 @@ func run(logger *slog.Logger) (err error) {
 	if err != nil {
 		return err
 	}
+	apiMux := http.NewServeMux()
+	middleware.RegisterSessionAPI(apiMux)
+	provider.RegisterListAPI(apiMux, middleware)
 	authorizer, err := access.NewAuthorizer(db.Pool)
 	if err != nil {
 		return err
 	}
-	authHandler, err := auth.NewHandler(sessions, renderer)
-	if err != nil {
-		logger.Error("authentication page templates unavailable")
-		return err
-	}
-	authHandler.Register(mux)
-	mux.Handle("GET /{$}", middleware.RequireSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = httpx.SeeOther(w, r, "/databases")
-	})))
 	adminService, err := admin.NewService(db.Pool, sessions)
 	if err != nil {
 		return err
 	}
-	adminHandler, err := admin.NewHandler(adminService, sessions, renderer)
-	if err != nil {
-		logger.Error("administration page templates unavailable")
-		return err
-	}
-	adminHandler.Register(mux)
-	handler, err := targets.NewHandler(provider, authorizer, renderer)
-	if err != nil {
-		logger.Error("database page templates unavailable")
-		return err
-	}
-	if !handler.Register(mux, middleware) {
-		logger.Info("admin connection routes pending admin_databases and admin_database templates")
-	}
-	explorerHandler, err := explorer.NewHandler(explorer.New(provider), db.Pool, authorizer, renderer)
-	if err != nil {
-		logger.Error("explorer page templates unavailable")
-		return err
-	}
-	explorerHandler.Register(mux, middleware)
-	runner, err := migration.NewRunner(migration.NewAttemptStore(db.Pool), provider, authorizer)
+	adminService.RegisterAPI(apiMux, middleware)
+	provider.RegisterAdminAPI(apiMux, middleware, authorizer)
+	explorerService := explorer.New(provider)
+	explorerService.RegisterAPI(apiMux, middleware, db.Pool, authorizer)
+	runner, err := legacy.NewRunner(legacy.NewAttemptStore(db.Pool), provider, authorizer)
 	if err != nil {
 		return err
 	}
-	draftHandler, err := migration.NewHandler(migration.NewDraftStore(db.Pool), runner, authorizer, renderer)
+	migrationService, err := migration.NewService(migration.NewDraftStore(db.Pool), runner, authorizer)
 	if err != nil {
-		logger.Error("migration page templates unavailable")
 		return err
 	}
-	draftHandler.Register(mux, middleware)
-	assets, err := httpx.MountStatic(mux, "web/static")
+	draftHandler, err := httpapi.NewAPIHandler(migrationService)
 	if err != nil {
+		return err
+	}
+	draftHandler.RetireLegacyExecute()
+	draftHandler.RegisterAPI(apiMux, middleware)
+	assets, err := httpx.MountStatic(mux, cfg.StaticDir)
+	if err != nil || assets == nil {
 		logger.Error("unable to open static directory")
+		if err == nil {
+			err = os.ErrNotExist
+		}
 		return err
 	}
-	if assets != nil {
-		defer assets.Close()
+	defer assets.Close()
+	application, frontend, err := httpx.SPA(mux, cfg.SPADir)
+	if err != nil {
+		logger.Error("unable to open frontend build")
+		return err
 	}
+	if frontend != nil {
+		defer frontend.Close()
+	}
+	api := httpx.APIHandler(apiMux)
+	routes := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if httpx.IsAPI(r) {
+			api.ServeHTTP(w, r)
+			return
+		}
+		application.ServeHTTP(w, r)
+	})
 	listener, err := net.Listen("tcp", cfg.HTTPAddr)
 	if err != nil {
 		return err
@@ -169,9 +178,10 @@ func run(logger *slog.Logger) (err error) {
 		<-cleanupDone
 	}()
 	logger.Info("HTTP server listening; platform ready")
-	return serveHTTP(ctx, newServer(cfg, httpx.Middleware(logger, httpx.ErrorPages(renderer, mux))), listener, db.Lost())
+	return serveHTTP(ctx, newServer(cfg, httpx.Middleware(logger, routes)), listener, db.Lost())
 }
 
+// Clean expired session
 func runSessionCleanup(ctx context.Context, interval time.Duration, cleanup func(context.Context) error, logger *slog.Logger) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -187,10 +197,11 @@ func runSessionCleanup(ctx context.Context, interval time.Duration, cleanup func
 	}
 }
 
+// build new http server
 func newServer(cfg config.Config, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           handler,
+		Handler:           telemetry.HTTPMiddleware(handler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      75 * time.Second,
@@ -198,6 +209,7 @@ func newServer(cfg config.Config, handler http.Handler) *http.Server {
 	}
 }
 
+// Listening to http
 func serveHTTP(ctx context.Context, server *http.Server, listener net.Listener, lockLost <-chan struct{}) error {
 	// Penghentian server menunggu request aktif selesai. Context request tetap hidup sampai selesai atau
 	// batas shutdown menutup koneksi.
