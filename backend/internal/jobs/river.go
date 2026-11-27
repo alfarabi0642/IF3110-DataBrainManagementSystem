@@ -18,6 +18,7 @@ import (
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/config"
 	"github.com/alfarabi0642/IF3110-DataBrainManagementSystem/backend/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -174,6 +175,15 @@ func IsFinalAttempt(ctx context.Context) bool {
 	return ok && info.maxAttempts > 0 && info.attempt >= info.maxAttempts
 }
 
+// Attempt mengembalikan nomor percobaan River yang aktif pada ctx (0 jika tidak ada).
+func Attempt(ctx context.Context) int {
+	info, ok := ctx.Value(attemptInfoKey{}).(attemptInfo)
+	if !ok {
+		return 0
+	}
+	return info.attempt
+}
+
 func (w *ExecutionWorker) Work(ctx context.Context, job *river.Job[ExecutionJobArgs]) error {
 	if err := job.Args.Validate(); err != nil {
 		return river.JobCancel(err)
@@ -208,13 +218,17 @@ func (w *ExecutionWorker) Work(ctx context.Context, job *river.Job[ExecutionJobA
 		}
 		return river.JobSnooze(d)
 	}
+	safeErr := telemetry.SanitizeError(err)
+	safeMsg := errors.New(safeErr.Kind + ":" + safeErr.Code)
 	var perm PermanentError
 	if errors.As(err, &perm) {
 		span.SetAttributes(attribute.String(telemetry.FieldStatus, "permanent_error"))
-		return river.JobCancel(perm)
+		span.SetStatus(codes.Error, safeErr.Code)
+		return river.JobCancel(safeMsg)
 	}
 	span.SetAttributes(attribute.String(telemetry.FieldStatus, "retryable_error"))
-	return err
+	span.SetStatus(codes.Error, safeErr.Code)
+	return safeMsg
 }
 
 // NewWorkers membuat registry worker fondasi (hanya ReferenceWorker).
@@ -277,10 +291,12 @@ func (e *Enqueuer) Enqueue(ctx context.Context, tx pgx.Tx, args ExecutionJobArgs
 	result, err := e.client.InsertTx(ctx, tx, args, nil)
 	if err != nil {
 		span.SetAttributes(attribute.String(telemetry.FieldStatus, "error"))
+		span.SetStatus(codes.Error, telemetry.SanitizeError(err).Code)
 		return 0, fmt.Errorf("enqueue execution job: %w", err)
 	}
 	if result == nil || result.Job == nil || result.Job.ID < 1 {
 		span.SetAttributes(attribute.String(telemetry.FieldStatus, "error"))
+		span.SetStatus(codes.Error, "NO_JOB_ID")
 		return 0, errors.New("enqueue execution job returned no job ID")
 	}
 	span.SetAttributes(

@@ -9,12 +9,42 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )
 
 const tracerName = "databrain/runtime"
+
+type logAttrsKey struct{}
+
+// WithLogAttrs menyematkan pasangan atribut korelasi (mis. actor_id, database_id, execution_id,
+// job_id, attempt, batch) ke ctx agar QueryTracer menyertakannya secara konsisten pada log SQL.
+func WithLogAttrs(ctx context.Context, kv ...any) context.Context {
+	if len(kv) < 2 {
+		return ctx
+	}
+	prev := LogAttrs(ctx)
+	merged := make([]any, 0, len(prev)+len(kv))
+	merged = append(merged, prev...)
+	merged = append(merged, kv...)
+	return context.WithValue(ctx, logAttrsKey{}, merged)
+}
+
+// LogAttrs mengembalikan salinan atribut korelasi yang tersemat pada ctx.
+func LogAttrs(ctx context.Context) []any {
+	if ctx == nil {
+		return nil
+	}
+	attrs, _ := ctx.Value(logAttrsKey{}).([]any)
+	if len(attrs) == 0 {
+		return nil
+	}
+	out := make([]any, len(attrs))
+	copy(out, attrs)
+	return out
+}
 
 // Tracer mengembalikan tracer bersama untuk span HTTP, antrean River, worker, lock, batch, dan finalizer.
 func Tracer() trace.Tracer {
@@ -78,7 +108,7 @@ func (r *statusRecorder) WriteHeader(code int) {
 }
 
 // HTTPMiddleware mengekstrak header W3C TraceContext masuk, membuka span server http.request tanpa
-// mencatat query string, body, cookie, atau kredensial, dan meneruskan ctx ke handler aplikasi.
+// mencatat path mentah, query string, body, cookie, atau kredensial, dan meneruskan ctx ke handler.
 func HTTPMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
@@ -86,7 +116,6 @@ func HTTPMiddleware(next http.Handler) http.Handler {
 			trace.WithSpanKind(trace.SpanKindServer),
 			trace.WithAttributes(
 				attribute.String("http.method", r.Method),
-				attribute.String("http.path", r.URL.Path),
 			),
 		)
 		defer span.End()
@@ -94,9 +123,17 @@ func HTTPMiddleware(next http.Handler) http.Handler {
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		started := time.Now()
 		next.ServeHTTP(rec, r.WithContext(ctx))
+		route := r.Pattern
+		if route == "" {
+			route = "unmatched"
+		}
 		span.SetAttributes(
+			attribute.String("http.route", route),
 			attribute.Int("http.status_code", rec.status),
 			attribute.Int64(FieldDuration, time.Since(started).Milliseconds()),
 		)
+		if rec.status >= http.StatusBadRequest {
+			span.SetStatus(codes.Error, http.StatusText(rec.status))
+		}
 	})
 }

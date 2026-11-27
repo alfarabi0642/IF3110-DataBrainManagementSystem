@@ -168,7 +168,7 @@ func ReconcileExecution(ctx context.Context, pool *pgxpool.Pool, provider *targe
 	ev := ClassifyTargetEvidence(ctx, conn, rootID, op.Direction, op.PlanHash, rec.phase != "queued")
 	switch ev.State {
 	case EvidenceCommitted:
-		if err := exec.finalizeAndClearOwner(conn, executionID, 0, op, *ev.Commit, ownerSecret); err != nil {
+		if err := exec.finalizeAndClearOwner(ctx, conn, executionID, 0, op, *ev.Commit, ownerSecret); err != nil {
 			return ReconcileResult{ExecutionID: executionID, Evidence: ev.State}, err
 		}
 		return ReconcileResult{

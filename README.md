@@ -104,3 +104,39 @@ Viewer dapat membaca schema, data, history, dan detail migration. Editor dapat m
 Aplikasi menerima subset SQL PostgreSQL, termasuk `CREATE`, `ALTER`, dan `DROP TABLE`, `CREATE` dan `DROP SCHEMA`, sebagian operasi indeks, serta `INSERT`, `UPDATE`, dan `DELETE`. Kontrol transaksi, fungsi atau prosedur, dan `SELECT` sebagai perintah utama ditolak sebelum eksekusi. Draft dapat disimpan sebelum SQL siap diajukan.
 
 Lihat status di **Execution** dan hasil commit di **History**. Jika hasil `COMMIT` belum pasti, tunggu hasil rekonsiliasi sebelum menjalankan ulang SQL. Operator menggunakan `manage resolve-attempt` untuk attempt lama (M1) setelah API dihentikan. Untuk eksekusi asinkron (M2), `manage reconcile-execution --execution <UUID>` membaca bukti dari jurnal database target.
+
+## Logging dan Tracing
+
+API (`app`) dan worker (`worker`) menulis structured log JSON (`log/slog`) dan span OpenTelemetry (`stdouttrace`) ke `stderr`. 
+
+Untuk melihat log dan span secara langsung pada mode Docker Compose:
+
+```sh
+# Log API dan worker bersamaan
+docker compose -f infra/compose.yaml logs -f --tail=50 app worker
+
+# Filter event migrasi, lock, batch, dan SQL
+docker compose -f infra/compose.yaml logs --tail=200 app worker | grep -E "migration execution|migration batch|SQL query|migration\.lock|migration\.batch"
+
+# Lacak satu eksekusi lintas proses menggunakan trace_id
+docker compose -f infra/compose.yaml logs app worker | grep "<TRACE_ID>"
+```
+
+Pada mode host (`bash ./run-dev.sh`), log JSON dan span langsung tampil pada `stderr` terminal.
+
+**Contoh output structured log JSON (korelasi eksekusi & SQL):**
+
+```json
+{"time":"2026-11-27T11:15:02Z","level":"INFO","event":"migration execution started","service":"databrain-worker","execution_id":"9a2c...","request_id":"4f1b...","database_id":"1d8e...","actor_id":"7c3a...","migration_id":"2b9f...","job_id":42,"attempt":1,"direction":"apply","mode":"normal","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00f067aa0ba902b7"}
+{"time":"2026-11-27T11:15:02Z","level":"INFO","event":"SQL query completed","service":"databrain-worker","operation":"CREATE","sql_template":"CREATE TABLE public.contoh_migrasi (id bigint PRIMARY KEY)","sql_hash":"a1b2c3...","args":[],"trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"5b4185666d50f68b","execution_id":"9a2c...","request_id":"4f1b...","job_id":42,"attempt":1,"database_id":"1d8e...","actor_id":"7c3a...","migration_id":"2b9f...","status":"ok","duration_ms":4,"rows":0}
+```
+
+**Contoh rantai span OpenTelemetry (propagasi W3C `traceparent` melalui antrean River):**
+
+```json
+{"Name":"http.request","SpanContext":{"TraceID":"4bf92f3577b34da6a3ce929d0e0e4736","SpanID":"1111111111111111"},"Attributes":[{"Key":"http.method","Value":{"Type":"STRING","Value":"POST"}},{"Key":"http.route","Value":{"Type":"STRING","Value":"POST /api/databases/{id}/requests/{request_id}/execute"}},{"Key":"http.status_code","Value":{"Type":"INT64","Value":202}}]}
+{"Name":"river.enqueue","SpanContext":{"TraceID":"4bf92f3577b34da6a3ce929d0e0e4736","SpanID":"2222222222222222"},"Parent":{"TraceID":"4bf92f3577b34da6a3ce929d0e0e4736","SpanID":"1111111111111111"},"Attributes":[{"Key":"execution_id","Value":{"Type":"STRING","Value":"9a2c..."}},{"Key":"job_id","Value":{"Type":"INT64","Value":42}},{"Key":"status","Value":{"Type":"STRING","Value":"enqueued"}}]}
+{"Name":"river.consume","SpanContext":{"TraceID":"4bf92f3577b34da6a3ce929d0e0e4736","SpanID":"3333333333333333"},"Parent":{"TraceID":"4bf92f3577b34da6a3ce929d0e0e4736","SpanID":"2222222222222222"},"Attributes":[{"Key":"execution_id","Value":{"Type":"STRING","Value":"9a2c..."}},{"Key":"job_id","Value":{"Type":"INT64","Value":42}},{"Key":"attempt","Value":{"Type":"INT64","Value":1}},{"Key":"status","Value":{"Type":"STRING","Value":"ok"}}]}
+{"Name":"migration.lock","SpanContext":{"TraceID":"4bf92f3577b34da6a3ce929d0e0e4736","SpanID":"4444444444444444"},"Parent":{"TraceID":"4bf92f3577b34da6a3ce929d0e0e4736","SpanID":"3333333333333333"},"Attributes":[{"Key":"lock.acquired","Value":{"Type":"BOOL","Value":true}},{"Key":"status","Value":{"Type":"STRING","Value":"acquired"}}]}
+```
+

@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // executeBatch menjalankan mode batch (apply, resume, atau compensate) di bawah lock kepemilikan
@@ -153,7 +154,7 @@ func captureBatchScopeChunked(ctx context.Context, conn *pgx.Conn, rootID, actio
 		return 0, 0, err
 	}
 	defer func() {
-		rbCtx, cancel := context.WithTimeout(context.Background(), workerCleanupTimeout)
+		rbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), workerCleanupTimeout)
 		defer cancel()
 		_ = tx.Rollback(rbCtx)
 	}()
@@ -290,12 +291,26 @@ func (w *WorkerExecutor) runForwardBatches(ctx context.Context, conn *pgx.Conn, 
 			}
 		}
 
-		tag, execErr := tx.Exec(ctx, plan.UpSQL, keys, plan.Config.Delta)
+		batchStart := time.Now()
+		batchCtx, batchSpan := telemetry.Tracer().Start(ctx, "migration.batch")
+		batchCtx = telemetry.WithLogAttrs(batchCtx, telemetry.FieldBatch, ord, "attempt_number", attemptNumber)
+		batchSpan.SetAttributes(
+			attribute.String(telemetry.FieldExecutionID, executionID.String()),
+			attribute.String(telemetry.FieldDatabase, op.TargetID.String()),
+			attribute.Int(telemetry.FieldBatch, ord),
+			attribute.Int(telemetry.FieldAttempt, attemptNumber),
+			attribute.String("direction", op.Direction),
+		)
+
+		tag, execErr := tx.Exec(batchCtx, plan.UpSQL, keys, plan.Config.Delta)
 		if execErr != nil {
-			f := legacy.StatementFailure(ctx, execErr, ord)
+			f := legacy.StatementFailure(batchCtx, execErr, ord)
+			batchSpan.SetAttributes(attribute.String(telemetry.FieldStatus, "error"), attribute.Int64(telemetry.FieldDuration, time.Since(batchStart).Milliseconds()))
+			batchSpan.SetStatus(codes.Error, f.Code)
+			batchSpan.End()
 			w.rollbackTargetTx(tx)
 			if len(committedOrds) == 0 {
-				clearCtx, cancel := context.WithTimeout(context.Background(), workerCleanupTimeout)
+				clearCtx, cancel := context.WithTimeout(context.WithoutCancel(batchCtx), workerCleanupTimeout)
 				_ = journal.ClearJournalOwner(clearCtx, conn, rootID, ownerSecret)
 				cancel()
 				_ = w.markFailedAndRelease(executionID, attemptNumber, f.Code, f.Message, f.SQLState)
@@ -306,9 +321,12 @@ func (w *WorkerExecutor) runForwardBatches(ctx context.Context, conn *pgx.Conn, 
 			return jobs.PermanentError{Err: execErr}
 		}
 		if tag.RowsAffected() != int64(len(keys)) {
+			batchSpan.SetAttributes(attribute.String(telemetry.FieldStatus, "error"), attribute.Int64(telemetry.FieldDuration, time.Since(batchStart).Milliseconds()))
+			batchSpan.SetStatus(codes.Error, "BATCH_SCOPE_MISMATCH")
+			batchSpan.End()
 			w.rollbackTargetTx(tx)
 			if len(committedOrds) == 0 {
-				clearCtx, cancel := context.WithTimeout(context.Background(), workerCleanupTimeout)
+				clearCtx, cancel := context.WithTimeout(context.WithoutCancel(batchCtx), workerCleanupTimeout)
 				_ = journal.ClearJournalOwner(clearCtx, conn, rootID, ownerSecret)
 				cancel()
 				_ = w.markFailedAndRelease(executionID, attemptNumber, "BATCH_SCOPE_MISMATCH", "Target rows changed concurrently during batch execution.", "")
@@ -319,17 +337,10 @@ func (w *WorkerExecutor) runForwardBatches(ctx context.Context, conn *pgx.Conn, 
 			return jobs.PermanentError{Err: errors.New("batch affected row count mismatch")}
 		}
 
-		batchStart := time.Now()
-		batchCtx, batchSpan := telemetry.Tracer().Start(ctx, "migration.batch")
-		batchSpan.SetAttributes(
-			attribute.String(telemetry.FieldExecutionID, executionID.String()),
-			attribute.String(telemetry.FieldDatabase, op.TargetID.String()),
-			attribute.Int(telemetry.FieldBatch, ord),
-			attribute.String("direction", op.Direction),
-			attribute.Int64(telemetry.FieldRows, tag.RowsAffected()),
-		)
+		batchSpan.SetAttributes(attribute.Int64(telemetry.FieldRows, tag.RowsAffected()))
 		if err := txGuard.RecordCommit(batchCtx, tx, ord, op.Direction, tag.RowsAffected(), &cursorEnd); err != nil {
-			batchSpan.SetAttributes(attribute.String(telemetry.FieldStatus, "error"))
+			batchSpan.SetAttributes(attribute.String(telemetry.FieldStatus, "error"), attribute.Int64(telemetry.FieldDuration, time.Since(batchStart).Milliseconds()))
+			batchSpan.SetStatus(codes.Error, "TARGET_JOURNAL_UNSAFE")
 			batchSpan.End()
 			w.rollbackTargetTx(tx)
 			_ = w.markBlockedPartial(executionID, rootID, attemptNumber, int64(len(committedOrds)), committedRowsCount,
@@ -337,7 +348,8 @@ func (w *WorkerExecutor) runForwardBatches(ctx context.Context, conn *pgx.Conn, 
 			return jobs.PermanentError{Err: err}
 		}
 		if err := tx.Commit(batchCtx); err != nil {
-			batchSpan.SetAttributes(attribute.String(telemetry.FieldStatus, "unknown"))
+			batchSpan.SetAttributes(attribute.String(telemetry.FieldStatus, "unknown"), attribute.Int64(telemetry.FieldDuration, time.Since(batchStart).Milliseconds()))
+			batchSpan.SetStatus(codes.Error, "COMMIT_UNCERTAIN")
 			batchSpan.End()
 			_ = w.markBlockedUnknown(executionID, attemptNumber, "COMMIT_UNCERTAIN", "Batch commit outcome could not be confirmed.", "")
 			return jobs.PermanentError{Err: err}
@@ -351,6 +363,7 @@ func (w *WorkerExecutor) runForwardBatches(ctx context.Context, conn *pgx.Conn, 
 			telemetry.FieldExecutionID, executionID.String(),
 			telemetry.FieldDatabase, op.TargetID.String(),
 			telemetry.FieldBatch, ord,
+			telemetry.FieldAttempt, attemptNumber,
 			"direction", op.Direction,
 			telemetry.FieldRows, tag.RowsAffected(),
 			telemetry.FieldDuration, batchDur,
@@ -486,23 +499,61 @@ func (w *WorkerExecutor) runReverseCompensation(ctx context.Context, conn *pgx.C
 			}
 		}
 
-		tag, execErr := tx.Exec(ctx, plan.DownSQL, keys, plan.Config.Delta)
+		batchStart := time.Now()
+		batchCtx, batchSpan := telemetry.Tracer().Start(ctx, "migration.batch")
+		batchCtx = telemetry.WithLogAttrs(batchCtx, telemetry.FieldBatch, ord, "attempt_number", attemptNumber)
+		batchSpan.SetAttributes(
+			attribute.String(telemetry.FieldExecutionID, executionID.String()),
+			attribute.String(telemetry.FieldDatabase, op.TargetID.String()),
+			attribute.Int(telemetry.FieldBatch, ord),
+			attribute.Int(telemetry.FieldAttempt, attemptNumber),
+			attribute.String("direction", execstore.DirectionCompensate),
+		)
+
+		tag, execErr := tx.Exec(batchCtx, plan.DownSQL, keys, plan.Config.Delta)
 		if execErr != nil || tag.RowsAffected() != int64(len(keys)) {
+			batchSpan.SetAttributes(attribute.String(telemetry.FieldStatus, "error"), attribute.Int64(telemetry.FieldDuration, time.Since(batchStart).Milliseconds()))
+			batchSpan.SetStatus(codes.Error, "COMPENSATION_FAILED")
+			batchSpan.End()
 			w.rollbackTargetTx(tx)
 			_ = w.markPartiallyReverted(executionID, rootID, attemptNumber, revertedBatches, revertedRows,
 				"COMPENSATION_FAILED", fmt.Sprintf("Reverse compensation failed on batch %d.", ord), "")
 			return jobs.PermanentError{Err: errors.New("reverse compensation batch failed")}
 		}
-		if err := txGuard.RecordCommit(ctx, tx, ord, execstore.DirectionCompensate, tag.RowsAffected(), &cursorEnd); err != nil {
+		batchSpan.SetAttributes(attribute.Int64(telemetry.FieldRows, tag.RowsAffected()))
+		if err := txGuard.RecordCommit(batchCtx, tx, ord, execstore.DirectionCompensate, tag.RowsAffected(), &cursorEnd); err != nil {
+			batchSpan.SetAttributes(attribute.String(telemetry.FieldStatus, "error"), attribute.Int64(telemetry.FieldDuration, time.Since(batchStart).Milliseconds()))
+			batchSpan.SetStatus(codes.Error, "TARGET_JOURNAL_UNSAFE")
+			batchSpan.End()
 			w.rollbackTargetTx(tx)
 			_ = w.markPartiallyReverted(executionID, rootID, attemptNumber, revertedBatches, revertedRows,
 				"TARGET_JOURNAL_UNSAFE", "Could not record reverse compensation checkpoint.", "")
 			return jobs.PermanentError{Err: err}
 		}
-		if err := tx.Commit(ctx); err != nil {
+		if err := tx.Commit(batchCtx); err != nil {
+			batchSpan.SetAttributes(attribute.String(telemetry.FieldStatus, "unknown"), attribute.Int64(telemetry.FieldDuration, time.Since(batchStart).Milliseconds()))
+			batchSpan.SetStatus(codes.Error, "COMMIT_UNCERTAIN")
+			batchSpan.End()
 			_ = w.markBlockedUnknown(executionID, attemptNumber, "COMMIT_UNCERTAIN", "Compensation commit outcome could not be confirmed.", "")
 			return jobs.PermanentError{Err: err}
 		}
+		batchDur := time.Since(batchStart).Milliseconds()
+		batchSpan.SetAttributes(
+			attribute.String(telemetry.FieldStatus, "committed"),
+			attribute.Int64(telemetry.FieldDuration, batchDur),
+		)
+		batchAttrs := append([]any{
+			telemetry.FieldExecutionID, executionID.String(),
+			telemetry.FieldDatabase, op.TargetID.String(),
+			telemetry.FieldBatch, ord,
+			telemetry.FieldAttempt, attemptNumber,
+			"direction", execstore.DirectionCompensate,
+			telemetry.FieldRows, tag.RowsAffected(),
+			telemetry.FieldDuration, batchDur,
+			telemetry.FieldStatus, "committed",
+		}, telemetry.TraceAttrs(batchCtx)...)
+		w.logger.Info("migration batch compensated", batchAttrs...)
+		batchSpan.End()
 
 		nowUTC := time.Now().UTC()
 		reverted[ord] = tag.RowsAffected()
